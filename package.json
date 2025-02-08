@@ -1,6 +1,6 @@
 {
   "name": "mockup-storage",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Lightweight mock storage with in-memory collections and file persistence for testing and prototyping",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
