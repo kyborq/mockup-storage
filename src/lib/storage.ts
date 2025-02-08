@@ -97,4 +97,37 @@ export class MockStorage {
       persister.commit();
     });
   }
+
+  /**
+   * Gets list of all collection names in the storage
+   * @returns Array of collection names
+   */
+  public listCollections(): string[] {
+    return Array.from(this.collections.keys());
+  }
+
+  /**
+   * Checks if a collection exists in the storage
+   * @param name - Collection name to check
+   * @returns `true` if collection exists, `false` otherwise
+   */
+  public hasCollection(name: string): boolean {
+    return this.collections.has(name);
+  }
+
+  /**
+   * Gets metadata about all collections
+   * @returns Object with collection names and their record counts
+   */
+  public listCollectionsWithStats(): Array<{
+    name: string;
+    count: number;
+    persisted: boolean;
+  }> {
+    return Array.from(this.collections.entries()).map(([name, collection]) => ({
+      name,
+      count: collection.all().length,
+      persisted: this.persisters.has(name),
+    }));
+  }
 }
