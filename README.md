@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/mockup-storage.svg)](https://www.npmjs.com/package/mockup-storage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A lightweight mock storage solution for testing and prototyping, featuring in-memory collections with optional file system persistence.
+A lightweight mock storage solution for testing and prototyping, featuring in-memory collections with file system persistence.
 
 ## Installation
 

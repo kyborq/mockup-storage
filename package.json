@@ -1,7 +1,7 @@
 {
   "name": "mockup-storage",
-  "version": "0.0.3",
-  "description": "",
+  "version": "0.0.4",
+  "description": "Lightweight mock storage with in-memory collections and file persistence for testing and prototyping",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -10,7 +10,19 @@
     "prepare": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "mock",
+    "storage",
+    "testing",
+    "in-memory",
+    "persistence",
+    "typescript",
+    "crud",
+    "collections",
+    "database",
+    "mockup",
+    "prototyping"
+  ],
   "author": "Konstantin Podyganov k.podyganov@mail.ru",
   "license": "MIT",
   "type": "commonjs",
