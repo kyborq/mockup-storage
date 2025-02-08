@@ -1,0 +1,107 @@
+import fs from "fs/promises";
+import path from "path";
+import { MockCollection } from "./collection";
+import { MockView } from "./record";
+
+const MOCK_PERSIST_DIRECTORY = ".mock";
+
+/**
+ * Configuration options for MockPersist
+ */
+export interface MockPersistOptions {}
+
+/**
+ * Configuration object for MockPersist constructor
+ * @template T - Data type stored in the collection
+ */
+export interface MockPersistConfig<T> {
+  /** Unique name for the collection */
+  name: string;
+  /** Collection instance to persist */
+  collection: MockCollection<T>;
+  /** Persistence configuration options */
+  options?: MockPersistOptions;
+}
+
+/**
+ * Persistence handler for MockCollection that syncs data with JSON files
+ * @template T - Data type stored in the collection
+ */
+export class MockPersist<T> {
+  private name: string;
+  private collection: MockCollection<T>;
+  private options: Required<MockPersistOptions>;
+
+  /**
+   * Creates a persistence handler for a MockCollection
+   * @constructor
+   * @param {MockPersistConfig<T>} config - Configuration object
+   */
+  constructor(config: MockPersistConfig<T>) {
+    this.name = config.name;
+    this.collection = config.collection;
+    this.options = {
+      // Defaults here
+      ...config.options,
+    };
+  }
+
+  /**
+   * Loads data from persistent storage into the collection
+   * @throws {SyntaxError} If file contains invalid JSON
+   */
+  public async pull(): Promise<void> {
+    await this.emulateAsyncDelay();
+    const filePath = this.getFilePath();
+    try {
+      const data = await fs.readFile(filePath, "utf-8");
+      const parsedData: MockView<T>[] = JSON.parse(data);
+      await this.collection.init(parsedData);
+    } catch (error) {
+      await this.collection.init([]);
+    }
+  }
+
+  /**
+   * Saves collection data to persistent storage
+   * @throws {Error} On filesystem write errors
+   */
+  public async commit(): Promise<void> {
+    await this.emulateAsyncDelay();
+
+    const records = await this.collection.all();
+    const content = JSON.stringify(records, null, 2);
+    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
+    const filePath = this.getFilePath();
+
+    try {
+      await fs.access(dirPath);
+    } catch {
+      await fs.mkdir(dirPath, { recursive: true });
+    }
+
+    await fs.writeFile(filePath, content, {
+      encoding: "utf-8",
+    });
+  }
+
+  /**
+   * Updates persistence configuration
+   * @param options - New options to merge with current configuration
+   */
+  public configure(options: Partial<MockPersistOptions>): void {
+    this.options = { ...this.options, ...options };
+  }
+
+  private getFilePath(): string {
+    return path.join(
+      process.cwd(),
+      MOCK_PERSIST_DIRECTORY,
+      `${this.name}-collection.json`
+    );
+  }
+
+  private emulateAsyncDelay(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
