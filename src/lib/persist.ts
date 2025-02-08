@@ -8,7 +8,9 @@ const MOCK_PERSIST_DIRECTORY = ".mock";
 /**
  * Configuration options for MockPersist
  */
-export interface MockPersistOptions {}
+export interface MockPersistOptions {
+  persist: boolean;
+}
 
 /**
  * Configuration object for MockPersist constructor
@@ -31,6 +33,8 @@ export class MockPersist<T> {
   private name: string;
   private collection: MockCollection<T>;
   private options: Required<MockPersistOptions>;
+  private commitCallback: () => void;
+  private commitQueue: Promise<void> = Promise.resolve();
 
   /**
    * Creates a persistence handler for a MockCollection
@@ -40,10 +44,23 @@ export class MockPersist<T> {
   constructor(config: MockPersistConfig<T>) {
     this.name = config.name;
     this.collection = config.collection;
-    this.options = {
-      // Defaults here
-      ...config.options,
+    this.options = config.options || {
+      persist: false,
     };
+
+    this.commitCallback = () => {
+      if (this.options.persist) {
+        this.commitQueue = this.commitQueue
+          .then(async () => {
+            await this.commit();
+          })
+          .catch((error) => {
+            console.error("Commit error:", error);
+          });
+      }
+    };
+
+    this.collection.onModify(this.commitCallback);
   }
 
   /**
@@ -51,14 +68,17 @@ export class MockPersist<T> {
    * @throws {SyntaxError} If file contains invalid JSON
    */
   public async pull(): Promise<void> {
-    await this.emulateAsyncDelay();
+    if (!this.options.persist) return;
+
     const filePath = this.getFilePath();
     try {
       const data = await fs.readFile(filePath, "utf-8");
       const parsedData: MockView<T>[] = JSON.parse(data);
-      await this.collection.init(parsedData);
+      this.collection.init(parsedData);
     } catch (error) {
-      await this.collection.init([]);
+      this.collection.init([]);
+    } finally {
+      this.collection.onModify(this.commitCallback);
     }
   }
 
@@ -67,9 +87,9 @@ export class MockPersist<T> {
    * @throws {Error} On filesystem write errors
    */
   public async commit(): Promise<void> {
-    await this.emulateAsyncDelay();
+    if (!this.options.persist) return;
 
-    const records = await this.collection.all();
+    const records = this.collection.all();
     const content = JSON.stringify(records, null, 2);
     const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
     const filePath = this.getFilePath();
@@ -99,9 +119,5 @@ export class MockPersist<T> {
       MOCK_PERSIST_DIRECTORY,
       `${this.name}-collection.json`
     );
-  }
-
-  private emulateAsyncDelay(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

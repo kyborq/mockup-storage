@@ -9,7 +9,7 @@ interface MockStorageConfig {
    * Default persistence options for collections
    * @default { rewriteOnCommit: true }
    */
-  persistOptions?: MockPersistOptions;
+  persister?: MockPersistOptions;
 }
 
 /**
@@ -18,16 +18,16 @@ interface MockStorageConfig {
 export class MockStorage {
   private collections: Map<string, MockCollection<any>>;
   private persisters: Map<string, MockPersist<any>>;
-  private defaultPersistOptions: MockPersistOptions;
+  private config: MockStorageConfig;
 
   constructor(config: MockStorageConfig = {}) {
     this.collections = new Map();
     this.persisters = new Map();
-    this.defaultPersistOptions =
-      config.persistOptions ||
-      {
-        // Defaults here
-      };
+    this.config = config || {
+      persister: {
+        persist: false,
+      },
+    };
   }
 
   /**
@@ -37,23 +37,22 @@ export class MockStorage {
    * @param options - Optional persistence options for this collection
    * @returns Promise resolving to requested collection
    */
-  public async collection<T>(
+  public collection<T>(
     name: string,
     options?: MockPersistOptions
-  ): Promise<MockCollection<T>> {
-    await this.emulateAsyncDelay();
-
+  ): MockCollection<T> {
     if (!this.collections.has(name)) {
       const collection = new MockCollection<T>();
+
       const persistConfig: MockPersistConfig<T> = {
         name,
         collection,
-        options: { ...this.defaultPersistOptions, ...options },
+        options: options || this.config.persister,
       };
       const persist = new MockPersist<T>(persistConfig);
 
       try {
-        await persist.pull();
+        persist.pull();
       } catch (error) {
         console.warn(`Failed to initialize collection ${name}:`, error);
       }
@@ -84,25 +83,18 @@ export class MockStorage {
    * Commits changes to a specific collection
    * @param name - Name of the collection to commit
    */
-  public async commit(name: string): Promise<void> {
-    await this.emulateAsyncDelay();
+  public commit(name: string): void {
     const persist = this.persisters.get(name);
     if (!persist) throw new Error(`Collection ${name} not found`);
-    await persist.commit();
+    persist.commit();
   }
 
   /**
    * Commits changes to all managed collections
    */
   public async commitAll(): Promise<void> {
-    await this.emulateAsyncDelay();
-    const commitPromises = Array.from(this.persisters.values()).map((p) =>
-      p.commit()
-    );
-    await Promise.all(commitPromises);
-  }
-
-  private emulateAsyncDelay(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, 10));
+    this.persisters.forEach((persister) => {
+      persister.commit();
+    });
   }
 }

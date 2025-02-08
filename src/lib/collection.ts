@@ -14,6 +14,7 @@ export type MockFilter<T> = (record: MockView<T>) => boolean;
  */
 export class MockCollection<T> {
   private records: Map<string, MockRecord<T>>;
+  private onModifyCallbacks: (() => void)[] = [];
 
   /**
    * Creates a new `MockCollection` instance.
@@ -23,17 +24,39 @@ export class MockCollection<T> {
   }
 
   /**
+   * Registers a callback to be called when the collection is modified.
+   * @param callback - Callback function
+   */
+  public onModify(callback: () => void): void {
+    this.onModifyCallbacks.push(callback);
+  }
+
+  /**
+   * Unregisters a modification callback.
+   * @param callback - Callback function to remove
+   */
+  public offModify(callback: () => void): void {
+    this.onModifyCallbacks = this.onModifyCallbacks.filter(
+      (cb) => cb !== callback
+    );
+  }
+
+  private triggerModify(): void {
+    this.onModifyCallbacks.forEach((cb) => cb());
+  }
+
+  /**
    * Initializes the collection with data
    * @param data - Array of record views to initialize
    */
-  public async init(data: MockView<T>[]): Promise<void> {
-    await this.emulateAsyncDelay();
+  public init(data: MockView<T>[]): void {
     this.records.clear();
     data.forEach((view) => {
       const { id, ...rest } = view;
       const record = new MockRecord<T>({ id, ...(rest as T) });
       this.records.set(id, record);
     });
+    this.triggerModify();
   }
 
   /**
@@ -41,11 +64,11 @@ export class MockCollection<T> {
    * @param value - The data to store in the record
    * @returns Promise resolving to the added record view
    */
-  public async add(value: T): Promise<MockView<T>> {
-    await this.emulateAsyncDelay();
+  public add(value: T): MockView<T> {
     const record = new MockRecord<T>(value);
-    const view = await record.view();
+    const view = record.view();
     this.records.set(view.id, record);
+    this.triggerModify();
     return view;
   }
 
@@ -53,11 +76,10 @@ export class MockCollection<T> {
    * Retrieves all records in the collection
    * @returns Promise resolving to array of record views
    */
-  public async all(): Promise<MockView<T>[]> {
-    await this.emulateAsyncDelay();
+  public all(): MockView<T>[] {
     const result: MockView<T>[] = [];
     for (const record of this.records.values()) {
-      result.push(await record.view());
+      result.push(record.view());
     }
     return result;
   }
@@ -67,11 +89,10 @@ export class MockCollection<T> {
    * @param callback - Filter function to determine matches
    * @returns Promise resolving to array of matching records
    */
-  public async find(callback: MockFilter<T>): Promise<MockView<T>[]> {
-    await this.emulateAsyncDelay();
+  public find(callback: MockFilter<T>): MockView<T>[] {
     const result: MockView<T>[] = [];
     for (const record of this.records.values()) {
-      const view = await record.view();
+      const view = record.view();
       if (callback(view)) {
         result.push(view);
       }
@@ -84,10 +105,9 @@ export class MockCollection<T> {
    * @param callback - Filter function to determine match
    * @returns Promise resolving to found record or null
    */
-  public async first(callback: MockFilter<T>): Promise<MockView<T> | null> {
-    await this.emulateAsyncDelay();
+  public first(callback: MockFilter<T>): MockView<T> | null {
     for (const record of this.records.values()) {
-      const view = await record.view();
+      const view = record.view();
       if (callback(view)) {
         return view;
       }
@@ -99,18 +119,18 @@ export class MockCollection<T> {
    * Filters the collection in place based on callback
    * @param callback - Filter function to determine which records to keep
    */
-  public async filter(callback: MockFilter<T>): Promise<void> {
-    await this.emulateAsyncDelay();
+  public filter(callback: MockFilter<T>): void {
     const idsToRemove: string[] = [];
 
     for (const [id, record] of this.records) {
-      const view = await record.view();
+      const view = record.view();
       if (!callback(view)) {
         idsToRemove.push(id);
       }
     }
 
     idsToRemove.forEach((id) => this.records.delete(id));
+    this.triggerModify();
   }
 
   /**
@@ -118,8 +138,7 @@ export class MockCollection<T> {
    * @param id - ID of the record to retrieve
    * @returns Promise resolving to found record or null
    */
-  public async get(id: string): Promise<MockView<T> | null> {
-    await this.emulateAsyncDelay();
+  public get(id: string): MockView<T> | null {
     const record = this.records.get(id);
     return record ? record.view() : null;
   }
@@ -129,15 +148,11 @@ export class MockCollection<T> {
    * @param id - ID of the record to remove
    * @returns Promise resolving to boolean indicating success
    */
-  public async remove(id: string): Promise<boolean> {
-    await this.emulateAsyncDelay();
-    return this.records.delete(id);
-  }
-
-  /**
-   * Emulates async operation with small delay
-   */
-  private emulateAsyncDelay(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, 5));
+  public remove(id: string): boolean {
+    const result = this.records.delete(id);
+    if (result) {
+      this.triggerModify();
+    }
+    return result;
   }
 }
