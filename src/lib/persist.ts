@@ -120,4 +120,20 @@ export class MockPersist<T> {
       `${this.name}-collection.json`
     );
   }
+
+  public async health() {
+    const filePath = this.getFilePath();
+
+    try {
+      const stats = await fs.stat(filePath);
+
+      return {
+        size: stats.size,
+        createdAt: stats.birthtime,
+        lastModified: stats.mtime,
+      };
+    } catch (error) {
+      return {};
+    }
+  }
 }

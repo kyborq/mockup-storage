@@ -115,19 +115,59 @@ export class MockStorage {
     return this.collections.has(name);
   }
 
-  // /**
-  //  * Gets metadata about all collections
-  //  * @returns Object with collection names and their record counts
-  //  */
-  // public async listCollectionsWithStats(): Array<{
-  //   name: string;
-  //   count: number;
-  //   persisted: boolean;
-  // }> {
-  //   return Array.from(this.collections.entries()).map(([name, collection]) => ({
-  //     name,
-  //     count: await (collection.all()).length,
-  //     persisted: this.persisters.has(name),
-  //   }));
-  // }
+  /**
+   * Gets health information for all collections in the storage, including a summary of total size
+   * @returns Object containing:
+   * - collections: Array of health information in the format { collection: string, meta: health, count: number }
+   * - totalSize: Total size of all persisted collections in bytes
+   */
+  public async getHealth(): Promise<{
+    collections: Array<{
+      collection: string;
+      meta: Awaited<ReturnType<MockPersist<any>["health"]>>;
+      count: number;
+    }>;
+    totalSize: number;
+  }> {
+    const healthInfo = await Promise.all(
+      Array.from(this.collections.entries()).map(async ([name, collection]) => {
+        const persister = this.persisters.get(name);
+        const healthMeta = persister ? await persister.health() : {};
+        const count = (await collection.all()).length;
+
+        return {
+          collection: name,
+          meta: healthMeta,
+          count,
+        };
+      })
+    );
+
+    const totalSize = healthInfo.reduce((sum, info) => {
+      return sum + (info.meta.size || 0);
+    }, 0);
+
+    return {
+      collections: healthInfo,
+      totalSize,
+    };
+  }
+
+  /**
+   * Gets health information for collection in the storage by name
+   * @returns Health information in the format:
+   * { collection: string, meta: health, count: number }
+   */
+  public async getCollectionHealth(name: string) {
+    const collection = this.collections.get(name);
+    const persister = this.persisters.get(name);
+    const healthMeta = persister ? await persister.health() : {};
+    const count = collection ? (await collection.all()).length : 0;
+
+    return {
+      collection: name,
+      meta: healthMeta,
+      count,
+    };
+  }
 }
