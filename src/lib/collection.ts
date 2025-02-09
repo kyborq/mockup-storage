@@ -1,3 +1,4 @@
+import { Mutex } from "async-mutex";
 import { MockRecord, MockView } from "./record";
 
 /**
@@ -13,6 +14,8 @@ export type MockFilter<T> = (record: MockView<T>) => boolean;
  * @template T - The type of the record data.
  */
 export class MockCollection<T> {
+  private mutex = new Mutex();
+
   private records: Map<string, MockRecord<T>>;
   private onModifyCallbacks: (() => void)[] = [];
 
@@ -49,14 +52,20 @@ export class MockCollection<T> {
    * Initializes the collection with data
    * @param data - Array of record views to initialize
    */
-  public init(data: MockView<T>[]): void {
-    this.records.clear();
-    data.forEach((view) => {
-      const { id, ...rest } = view;
-      const record = new MockRecord<T>({ id, ...(rest as T) });
-      this.records.set(id, record);
-    });
-    this.triggerModify();
+  public async init(data: MockView<T>[]): Promise<void> {
+    const release = await this.mutex.acquire();
+
+    try {
+      this.records.clear();
+      data.forEach((view) => {
+        const { id, ...rest } = view;
+        const record = new MockRecord<T>({ id, ...(rest as T) });
+        this.records.set(id, record);
+      });
+      this.triggerModify();
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -64,24 +73,32 @@ export class MockCollection<T> {
    * @param value - The data to store in the record
    * @returns Promise resolving to the added record view
    */
-  public add(value: T): MockView<T> {
-    const record = new MockRecord<T>(value);
-    const view = record.view();
-    this.records.set(view.id, record);
-    this.triggerModify();
-    return view;
+  public async add(value: T): Promise<MockView<T>> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const record = new MockRecord<T>(value);
+      const view = record.view();
+      this.records.set(view.id, record);
+      this.triggerModify();
+      return view;
+    } finally {
+      release();
+    }
   }
 
   /**
    * Retrieves all records in the collection
    * @returns Promise resolving to array of record views
    */
-  public all(): MockView<T>[] {
-    const result: MockView<T>[] = [];
-    for (const record of this.records.values()) {
-      result.push(record.view());
+  public async all(): Promise<MockView<T>[]> {
+    const release = await this.mutex.acquire();
+
+    try {
+      return Array.from(this.records.values()).map((record) => record.view());
+    } finally {
+      release();
     }
-    return result;
   }
 
   /**
@@ -89,15 +106,16 @@ export class MockCollection<T> {
    * @param callback - Filter function to determine matches
    * @returns Promise resolving to array of matching records
    */
-  public find(callback: MockFilter<T>): MockView<T>[] {
-    const result: MockView<T>[] = [];
-    for (const record of this.records.values()) {
-      const view = record.view();
-      if (callback(view)) {
-        result.push(view);
-      }
+  public async find(callback: MockFilter<T>): Promise<MockView<T>[]> {
+    const release = await this.mutex.acquire();
+
+    try {
+      return Array.from(this.records.values())
+        .map((record) => record.view())
+        .filter(callback);
+    } finally {
+      release();
     }
-    return result;
   }
 
   /**
@@ -105,32 +123,37 @@ export class MockCollection<T> {
    * @param callback - Filter function to determine match
    * @returns Promise resolving to found record or null
    */
-  public first(callback: MockFilter<T>): MockView<T> | null {
-    for (const record of this.records.values()) {
-      const view = record.view();
-      if (callback(view)) {
-        return view;
+  public async first(callback: MockFilter<T>): Promise<MockView<T> | null> {
+    const release = await this.mutex.acquire();
+
+    try {
+      for (const record of this.records.values()) {
+        const view = record.view();
+        if (callback(view)) return view;
       }
+      return null;
+    } finally {
+      release();
     }
-    return null;
   }
 
   /**
    * Filters the collection in place based on callback
    * @param callback - Filter function to determine which records to keep
    */
-  public filter(callback: MockFilter<T>): void {
-    const idsToRemove: string[] = [];
+  public async filter(callback: MockFilter<T>): Promise<void> {
+    const release = await this.mutex.acquire();
 
-    for (const [id, record] of this.records) {
-      const view = record.view();
-      if (!callback(view)) {
-        idsToRemove.push(id);
-      }
+    try {
+      const idsToRemove = Array.from(this.records.entries())
+        .filter(([_, record]) => !callback(record.view()))
+        .map(([id]) => id);
+
+      idsToRemove.forEach((id) => this.records.delete(id));
+      this.triggerModify();
+    } finally {
+      release();
     }
-
-    idsToRemove.forEach((id) => this.records.delete(id));
-    this.triggerModify();
   }
 
   /**
@@ -138,9 +161,15 @@ export class MockCollection<T> {
    * @param id - ID of the record to retrieve
    * @returns Promise resolving to found record or null
    */
-  public get(id: string): MockView<T> | null {
-    const record = this.records.get(id);
-    return record ? record.view() : null;
+  public async get(id: string): Promise<MockView<T> | null> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const record = this.records.get(id);
+      return record ? record.view() : null;
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -148,11 +177,17 @@ export class MockCollection<T> {
    * @param id - ID of the record to remove
    * @returns Promise resolving to boolean indicating success
    */
-  public remove(id: string): boolean {
-    const result = this.records.delete(id);
-    if (result) {
-      this.triggerModify();
+  public async remove(id: string): Promise<boolean> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const result = this.records.delete(id);
+      if (result) {
+        this.triggerModify();
+      }
+      return result;
+    } finally {
+      release();
     }
-    return result;
   }
 }

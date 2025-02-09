@@ -74,9 +74,9 @@ export class MockPersist<T> {
     try {
       const data = await fs.readFile(filePath, "utf-8");
       const parsedData: MockView<T>[] = JSON.parse(data);
-      this.collection.init(parsedData);
+      await this.collection.init(parsedData);
     } catch (error) {
-      this.collection.init([]);
+      await this.collection.init([]);
     } finally {
       this.collection.onModify(this.commitCallback);
     }
@@ -89,7 +89,7 @@ export class MockPersist<T> {
   public async commit(): Promise<void> {
     if (!this.options.persist) return;
 
-    const records = this.collection.all();
+    const records = await this.collection.all();
     const content = JSON.stringify(records, null, 2);
     const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
     const filePath = this.getFilePath();

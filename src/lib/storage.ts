@@ -37,10 +37,10 @@ export class MockStorage {
    * @param options - Optional persistence options for this collection
    * @returns Promise resolving to requested collection
    */
-  public collection<T>(
+  public async collection<T>(
     name: string,
     options?: MockPersistOptions
-  ): MockCollection<T> {
+  ): Promise<MockCollection<T>> {
     if (!this.collections.has(name)) {
       const collection = new MockCollection<T>();
 
@@ -52,7 +52,7 @@ export class MockStorage {
       const persist = new MockPersist<T>(persistConfig);
 
       try {
-        persist.pull();
+        await persist.pull();
       } catch (error) {
         console.warn(`Failed to initialize collection ${name}:`, error);
       }
@@ -83,19 +83,19 @@ export class MockStorage {
    * Commits changes to a specific collection
    * @param name - Name of the collection to commit
    */
-  public commit(name: string): void {
+  public async commit(name: string): Promise<void> {
     const persist = this.persisters.get(name);
     if (!persist) throw new Error(`Collection ${name} not found`);
-    persist.commit();
+    await persist.commit();
   }
 
   /**
    * Commits changes to all managed collections
    */
   public async commitAll(): Promise<void> {
-    this.persisters.forEach((persister) => {
-      persister.commit();
-    });
+    await Promise.all(
+      Array.from(this.persisters.values()).map((p) => p.commit())
+    );
   }
 
   /**
@@ -115,19 +115,19 @@ export class MockStorage {
     return this.collections.has(name);
   }
 
-  /**
-   * Gets metadata about all collections
-   * @returns Object with collection names and their record counts
-   */
-  public listCollectionsWithStats(): Array<{
-    name: string;
-    count: number;
-    persisted: boolean;
-  }> {
-    return Array.from(this.collections.entries()).map(([name, collection]) => ({
-      name,
-      count: collection.all().length,
-      persisted: this.persisters.has(name),
-    }));
-  }
+  // /**
+  //  * Gets metadata about all collections
+  //  * @returns Object with collection names and their record counts
+  //  */
+  // public async listCollectionsWithStats(): Array<{
+  //   name: string;
+  //   count: number;
+  //   persisted: boolean;
+  // }> {
+  //   return Array.from(this.collections.entries()).map(([name, collection]) => ({
+  //     name,
+  //     count: await (collection.all()).length,
+  //     persisted: this.persisters.has(name),
+  //   }));
+  // }
 }

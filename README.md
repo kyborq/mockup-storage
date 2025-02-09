@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/mockup-storage.svg)](https://www.npmjs.com/package/mockup-storage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A lightweight mock storage solution for testing and prototyping, featuring in-memory collections with file system persistence.
+A lightweight, asynchronous mock storage solution for testing and prototyping, featuring thread-safe in-memory collections with file system persistence. Ideal for multi-user server applications.
 
 ## Installation
 
@@ -13,45 +13,57 @@ npm install mockup-storage
 
 ## Quick Start
 
-### Basic Usage (In-Memory)
+### Basic Usage
 
 ```typescript
 import { MockStorage } from "mockup-storage";
 
-// Initialize storage
-const storage = new MockStorage();
+async function main() {
+  // Initialize storage
+  const storage = new MockStorage();
 
-// Get a collection
-const users = storage.collection<User>("users");
+  // Get/create a collection
+  const users = await storage.collection<User>("users");
 
-// Add records
-users.add({ name: "Alice", age: 28 });
-users.add({ name: "Bob", age: 32 });
+  // Add records
+  await users.add({ name: "Alice", age: 28 });
+  await users.add({ name: "Bob", age: 32 });
 
-// Query data
-const adults = users.find((user) => user.age >= 18);
-console.log(adults); // Array of matching records
+  // Query data
+  const adults = await users.find((user) => user.age >= 18);
+  console.log(adults); // Array of matching records
+}
+
+main();
 ```
 
 ### Persistent Storage
 
 ```typescript
-// Configure storage with persistence
-const storage = new MockStorage({
-  persister: { persist: true },
-});
+async function persistentExample() {
+  // Configure storage with persistence
+  const storage = new MockStorage({
+    persister: { persist: true },
+  });
 
-// Get persistent collection
-const users = storage.collection<User>("users");
+  // Get persistent collection
+  const users = await storage.collection<User>("users");
 
-// Data will be saved to `.mock/users-collection.json`
-users.add({ name: "Charlie", age: 25 });
+  // Data will be saved to `.mock/users-collection.json`
+  await users.add({ name: "Charlie", age: 25 });
 
-// Later runs will auto-load persisted data
+  // Later runs will auto-load persisted data
+  const allUsers = await users.all();
+  console.log(allUsers);
+}
+
+persistentExample();
 ```
 
 ## Features
 
+- **Asynchronous API**: All operations return Promises for non-blocking execution
+- **Concurrency Safe**: Read-write locks ensure thread safety in multi-user environments
 - **In-Memory Storage**: Fast, ephemeral data storage
 - **CRUD Operations**: Create, read, update, delete records
 - **Query Support**: Filter and find records with predicate functions
@@ -79,40 +91,47 @@ interface User {
   age: number;
 }
 
-// Get or create a collection
-const userCollection = storage.collection<User>("users");
+async function collectionOperations() {
+  const storage = new MockStorage();
+  const userCollection = await storage.collection<User>("users");
 
-// Add records
-const alice = userCollection.add({ name: "Alice", age: 28 });
-const bob = userCollection.add({ name: "Bob", age: 32 });
+  // Add records
+  const alice = await userCollection.add({ name: "Alice", age: 28 });
+  const bob = await userCollection.add({ name: "Bob", age: 32 });
 
-// Get all records
-const allUsers = userCollection.all();
+  // Get all records
+  const allUsers = await userCollection.all();
 
-// Find specific records
-const adults = userCollection.find((u) => u.age >= 18);
-const firstBob = userCollection.first((u) => u.name === "Bob");
+  // Find specific records
+  const adults = await userCollection.find((u) => u.age >= 18);
+  const firstBob = await userCollection.first((u) => u.name === "Bob");
 
-// Remove records
-userCollection.remove(alice.id);
+  // Remove records
+  const removed = await userCollection.remove(alice.id);
+}
+
+collectionOperations();
 ```
 
-### Persistence Configuration
+### Concurrency Handling
 
 ```typescript
-// Enable persistence for a specific collection
-const tempCollection = storage.collection<string>("temp", {
-  persist: true,
-});
+async function concurrentAccess() {
+  const storage = new MockStorage();
+  const collection = await storage.collection<number>("counters");
 
-// Update persistence settings
-storage.configureCollection("temp", {
-  persist: false, // Disable persistence
-});
+  // Simultaneous updates will be safely queued
+  await Promise.all([
+    collection.add({ value: 1 }),
+    collection.add({ value: 2 }),
+    collection.add({ value: 3 }),
+  ]);
 
-// Manual save
-storage.commit("temp");
-storage.commitAll(); // Save all collections
+  const results = await collection.all();
+  console.log(results); // All three values properly added
+}
+
+concurrentAccess();
 ```
 
 ## API Documentation
@@ -123,10 +142,18 @@ Main storage manager class
 
 **Methods**:
 
-- `collection<T>(name: string, options?)`: Get or create a collection
-- `configureCollection(name: string, options)`: Update persistence settings
-- `commit(name)`: Save specific collection
-- `commitAll()`: Save all collections
+- `collection<T>(name: string, options?): Promise<MockCollection<T>>`  
+  Get or create a collection (async)
+- `configureCollection(name: string, options): void`  
+  Update persistence settings
+- `commit(name: string): Promise<void>`  
+  Save specific collection (async)
+- `commitAll(): Promise<void>`  
+  Save all collections (async)
+- `listCollections(): string[]`  
+  Get all collection names
+- `hasCollection(name: string): boolean`  
+  Check collection existence
 
 ### `MockCollection<T>`
 
@@ -134,20 +161,20 @@ Data container with CRUD operations
 
 **Methods**:
 
-- `add(value: T)`: Add new record
-- `all()`: Get all records
-- `find(predicate)`: Filter records
-- `first(predicate)`: Find first match
-- `remove(id)`: Delete record
-- `onModify(callback)`: Subscribe to changes
-
-### `MockPersist`
-
-Persistence handler (automatically managed)
-
-### `MockRecord<T>`
-
-Individual record wrapper with UUID
+- `add(value: T): Promise<MockView<T>>`  
+  Add new record (async)
+- `all(): Promise<MockView<T>[]>`  
+  Get all records (async)
+- `find(predicate): Promise<MockView<T>[]>`  
+  Filter records (async)
+- `first(predicate): Promise<MockView<T> | null>`  
+  Find first match (async)
+- `remove(id: string): Promise<boolean>`  
+  Delete record (async)
+- `onModify(callback): void`  
+  Subscribe to changes
+- `offModify(callback): void`  
+  Unsubscribe from changes
 
 ## Persistence
 
@@ -157,13 +184,55 @@ Data is stored in JSON files under the `.mock` directory in your project root. E
 .mock/{collection-name}-collection.json
 ```
 
+File operations are performed asynchronously with proper locking to ensure data consistency across multiple processes.
+
+### Persistence Configuration
+
+```typescript
+async function configurePersistence() {
+  const storage = new MockStorage();
+
+  // Enable persistence for a specific collection
+  const tempCollection = await storage.collection<string>("temp", {
+    persist: true,
+    rewriteOnCommit: true,
+  });
+
+  // Update persistence settings
+  storage.configureCollection("temp", {
+    persist: false, // Disable persistence
+  });
+
+  // Manual save
+  await storage.commit("temp");
+  await storage.commitAll(); // Save all collections
+}
+
+configurePersistence();
+```
+
+## Concurrency Model
+
+The library uses read-write locks to ensure:
+
+- Multiple simultaneous reads
+- Exclusive access for write operations
+- Atomic commit operations
+- Consistent state during file I/O
+
+This makes it suitable for:
+
+- Server applications with multiple concurrent users
+- Testing scenarios with parallel operations
+- Prototyping distributed systems
+
 ## Contributing
 
 Contributions are welcome! Please follow these steps:
 
 1. Fork the repository
 2. Create a feature branch
-3. Commit your changes
+3. Commit your changes (ensure async patterns are maintained)
 4. Push to the branch
 5. Create a Pull Request
 
@@ -173,4 +242,4 @@ MIT © [Konstantin Podyganov](mailto:k.podyganov@mail.ru)
 
 ---
 
-**Note**: This package is designed for testing and prototyping purposes. For production use cases, consider using proper database solutions.
+**Note**: While designed for concurrency, this package is primarily intended for testing and prototyping. For production workloads at scale, consider using dedicated database solutions.
