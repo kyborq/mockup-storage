@@ -17,17 +17,14 @@ interface MockStorageConfig {
   persister?: MockPersistOptions;
 }
 
+type CollectionSchemas = Record<string, MockRecordSchema>;
+
 /**
  * Central storage manager for mock collections with optional persistence.
  * Supports both global schemas (defined at initialization) and local schemas (per collection).
  * @template Schemas - Type describing global schemas as a record of collection names to schemas
  */
-export class MockStorage<
-  Schemas extends Record<string, MockRecordSchema> = Record<
-    string,
-    MockRecordSchema
-  >
-> {
+export class MockStorage<Schemas extends CollectionSchemas> {
   private collections: Map<string, MockCollection<any>>;
   private persisters: Map<string, MockPersist<any>>;
   private config: MockStorageConfig;
@@ -86,6 +83,15 @@ export class MockStorage<
     }
   }
 
+  public async collection<Name extends keyof Schemas>(
+    name: Name
+  ): Promise<MockCollection<Schemas[Name]>>;
+
+  public async collection<S extends MockRecordSchema>(
+    name: string,
+    config: { schema?: S; options?: MockPersistOptions }
+  ): Promise<MockCollection<S>>;
+
   /**
    * Gets or creates a collection with local schema
    * @template S - Schema type for the collection
@@ -93,26 +99,35 @@ export class MockStorage<
    * @param config - Configuration with schema and persistence options
    * @returns Promise resolving to the requested collection
    */
-  public async collection<S extends MockRecordSchema>(
-    name: string,
+  public async collection<
+    Name extends keyof Schemas,
+    S extends MockRecordSchema
+  >(
+    name: Name | string,
     config?: { schema?: S; options?: MockPersistOptions }
   ): Promise<MockCollection<S>> {
+    const collectionName = name as string;
+
     if (config?.schema) {
-      (this.schemas as Record<string, MockRecordSchema>)[name] = config.schema;
+      (this.schemas as Record<string, MockRecordSchema>)[collectionName] =
+        config.schema;
     }
 
-    if (!this.collections.has(name)) {
-      const schema = config?.schema || this.schemas[name];
+    if (!this.collections.has(collectionName)) {
+      // Используем утверждение типа для ключа схемы
+      const schema =
+        config?.schema ||
+        (this.schemas as Record<string, MockRecordSchema>)[collectionName];
 
       if (!schema) {
         throw new Error(
-          `Schema for collection "${name}" not found. Provide it in config or global schemas.`
+          `Schema for collection "${collectionName}" not found. Provide it in config or global schemas.`
         );
       }
 
       const collection = new MockCollection(schema);
       const persistConfig: MockPersistConfig<any> = {
-        name,
+        name: collectionName, // Явно передаем строку
         collection,
         options: config?.options || this.config.persister,
       };
@@ -120,11 +135,11 @@ export class MockStorage<
       const persist = new MockPersist(persistConfig);
       await persist.pull();
 
-      this.collections.set(name, collection);
-      this.persisters.set(name, persist);
+      this.collections.set(collectionName, collection);
+      this.persisters.set(collectionName, persist);
     }
 
-    return this.collections.get(name)!;
+    return this.collections.get(collectionName)!;
   }
 
   /**
