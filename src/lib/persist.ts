@@ -2,8 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { MockCollection } from "./collection";
 import { MockView } from "./record";
-
-const MOCK_PERSIST_DIRECTORY = ".mock";
+import { MOCK_PERSIST_DIRECTORY } from "../constants";
 
 /**
  * Configuration options for MockPersist

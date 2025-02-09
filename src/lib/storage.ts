@@ -1,5 +1,9 @@
+import path from "path";
+import fs from "fs/promises";
+
 import { MockCollection } from "./collection";
 import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
+import { MOCK_PERSIST_DIRECTORY } from "../constants";
 
 /**
  * Configuration for storage initialization
@@ -28,6 +32,29 @@ export class MockStorage {
         persist: false,
       },
     };
+  }
+
+  /**
+   * Scans the `.mock` directory for existing collection files and loads them
+   */
+  public async initialize(): Promise<void> {
+    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
+
+    try {
+      await fs.access(dirPath);
+      const files = await fs.readdir(dirPath);
+
+      const collectionFiles = files.filter((file) =>
+        file.endsWith("-collection.json")
+      );
+
+      for (const file of collectionFiles) {
+        const collectionName = file.replace("-collection.json", "");
+        await this.collection(collectionName, { persist: true });
+      }
+    } catch (error) {
+      console.error("Error initializing collections:", error);
+    }
   }
 
   /**
