@@ -114,7 +114,6 @@ export class MockStorage<Schemas extends CollectionSchemas> {
     }
 
     if (!this.collections.has(collectionName)) {
-      // Используем утверждение типа для ключа схемы
       const schema =
         config?.schema ||
         (this.schemas as Record<string, MockRecordSchema>)[collectionName];
@@ -127,7 +126,7 @@ export class MockStorage<Schemas extends CollectionSchemas> {
 
       const collection = new MockCollection(schema);
       const persistConfig: MockPersistConfig<any> = {
-        name: collectionName, // Явно передаем строку
+        name: collectionName,
         collection,
         options: config?.options || this.config.persister,
       };
