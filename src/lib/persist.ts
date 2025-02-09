@@ -85,12 +85,21 @@ export class MockPersist<T extends MockRecordSchema> {
     const filePath = this.getFilePath();
     try {
       const data = await fs.readFile(filePath, "utf-8");
-      const parsedData: MockView<T>[] = JSON.parse(data);
-      await this.collection.init(parsedData);
+      const { schema, records } = JSON.parse(data);
+
+      const convertedRecords = records.map((record: any) => {
+        const converted = { ...record };
+        for (const [key, type] of Object.entries(schema)) {
+          if (type === "datetime" && typeof converted[key] === "string") {
+            converted[key] = new Date(converted[key]);
+          }
+        }
+        return converted;
+      });
+
+      await this.collection.init(convertedRecords);
     } catch (error) {
       await this.collection.init([]);
-    } finally {
-      this.collection.onModify(this.commitCallback);
     }
   }
 
@@ -102,8 +111,25 @@ export class MockPersist<T extends MockRecordSchema> {
   public async commit(): Promise<void> {
     if (!this.options.persist) return;
 
+    const schema = this.collection.getSchema();
     const records = await this.collection.all();
-    const content = JSON.stringify(records, null, 2);
+
+    const convertedRecords = records.map((record) => {
+      const converted: any = { ...record };
+      for (const [key, type] of Object.entries(schema)) {
+        if (type === "datetime" && converted[key] instanceof Date) {
+          converted[key] = converted[key].toISOString();
+        }
+      }
+      return converted;
+    });
+
+    const content = JSON.stringify(
+      { schema, records: convertedRecords },
+      null,
+      2
+    );
+
     const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
     const filePath = this.getFilePath();
 

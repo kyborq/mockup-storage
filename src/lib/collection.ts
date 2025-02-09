@@ -62,7 +62,6 @@ export class MockCollection<S extends MockRecordSchema> {
    */
   public async init(data: MockView<S>[]): Promise<void> {
     const release = await this.mutex.acquire();
-
     try {
       this.records.clear();
       data.forEach((view) => {
@@ -204,5 +203,9 @@ export class MockCollection<S extends MockRecordSchema> {
     } finally {
       release();
     }
+  }
+
+  public getSchema(): S {
+    return this.schema;
   }
 }

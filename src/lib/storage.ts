@@ -62,25 +62,29 @@ export class MockStorage<
 
       for (const file of collectionFiles) {
         const collectionName = file.replace("-collection.json", "");
-        await this.collection(collectionName, { persist: true });
+        const filePath = path.join(dirPath, file);
+
+        try {
+          const data = await fs.readFile(filePath, "utf-8");
+          const { schema } = JSON.parse(data);
+
+          (this.schemas as Record<string, MockRecordSchema>)[collectionName] =
+            schema;
+
+          await this.collection(collectionName, {
+            schema: schema,
+            options: {
+              persist: true,
+            },
+          });
+        } catch (error) {
+          console.error(`Error loading collection ${collectionName}:`, error);
+        }
       }
     } catch (error) {
-      console.error("Error initializing collections:", error);
+      console.error("Error initializing storage:", error);
     }
   }
-
-  /**
-   * Gets or creates a collection with global schema
-   * @template K - Collection name key from global schemas
-   * @param name - Collection name from global schemas
-   * @param options - Persistence options for this collection
-   * @returns Promise resolving to the requested collection
-   * @throws {Error} If collection name not found in global schemas
-   */
-  public async collection<K extends keyof Schemas>(
-    name: K,
-    options?: MockPersistOptions
-  ): Promise<MockCollection<Schemas[K]>>;
 
   /**
    * Gets or creates a collection with local schema
@@ -91,58 +95,34 @@ export class MockStorage<
    */
   public async collection<S extends MockRecordSchema>(
     name: string,
-    config: { schema: S; options?: MockPersistOptions }
+    config: { schema?: S; options?: MockPersistOptions }
   ): Promise<MockCollection<S>>;
 
   /**
    * Implementation for collection getter/create
    */
-  public async collection(
-    name: any,
-    config?: any
-  ): Promise<MockCollection<any>> {
-    let actualSchema: MockRecordSchema;
-    let options: MockPersistOptions | undefined;
-    let collectionName: string;
+  public async collection<S extends MockRecordSchema>(
+    name: string,
+    config: { schema: S; options?: MockPersistOptions }
+  ): Promise<MockCollection<S>> {
+    (this.schemas as Record<string, MockRecordSchema>)[name] = config.schema;
 
-    if (typeof name === "string" && config && "schema" in config) {
-      actualSchema = config.schema;
-      options = config.options;
-      collectionName = name;
-    } else {
-      collectionName = name as string;
-      if (!(collectionName in this.schemas)) {
-        throw new Error(
-          `Schema for collection "${collectionName}" not found in global schemas.`
-        );
-      }
-      actualSchema = this.schemas[collectionName];
-      options = config as MockPersistOptions;
-    }
-
-    if (!this.collections.has(collectionName)) {
-      const collection = new MockCollection(actualSchema);
+    if (!this.collections.has(name)) {
+      const collection = new MockCollection(config.schema);
       const persistConfig: MockPersistConfig<any> = {
-        name: collectionName,
+        name,
         collection,
-        options: options || this.config.persister,
+        options: config.options || this.config.persister,
       };
+
       const persist = new MockPersist(persistConfig);
+      await persist.pull();
 
-      try {
-        await persist.pull();
-      } catch (error) {
-        console.warn(
-          `Failed to initialize collection ${collectionName}:`,
-          error
-        );
-      }
-
-      this.collections.set(collectionName, collection);
-      this.persisters.set(collectionName, persist);
+      this.collections.set(name, collection);
+      this.persisters.set(name, persist);
     }
 
-    return this.collections.get(collectionName)!;
+    return this.collections.get(name)!;
   }
 
   /**
