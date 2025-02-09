@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import { MockCollection } from "./collection";
 import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
 import { MOCK_PERSIST_DIRECTORY } from "../constants";
+import { InferSchemaType, MockRecordSchema, MockView } from "./record";
 
 /**
  * Configuration for storage initialization
@@ -11,7 +12,7 @@ import { MOCK_PERSIST_DIRECTORY } from "../constants";
 interface MockStorageConfig {
   /**
    * Default persistence options for collections
-   * @default { rewriteOnCommit: true }
+   * @default { persist: false }
    */
   persister?: MockPersistOptions;
 }
@@ -19,12 +20,17 @@ interface MockStorageConfig {
 /**
  * Central storage manager for mock collections with persistence
  */
-export class MockStorage {
-  private collections: Map<string, MockCollection<any>>;
-  private persisters: Map<string, MockPersist<any>>;
+export class MockStorage<Schemas extends Record<string, MockRecordSchema>> {
+  private collections: Map<
+    keyof Schemas,
+    MockCollection<Schemas[keyof Schemas]>
+  >;
+  private persisters: Map<keyof Schemas, MockPersist<any>>;
   private config: MockStorageConfig;
+  private schemas: Schemas;
 
-  constructor(config: MockStorageConfig = {}) {
+  constructor(schemas: Schemas, config: MockStorageConfig = {}) {
+    this.schemas = schemas;
     this.collections = new Map();
     this.persisters = new Map();
     this.config = config || {
@@ -50,7 +56,9 @@ export class MockStorage {
 
       for (const file of collectionFiles) {
         const collectionName = file.replace("-collection.json", "");
-        await this.collection(collectionName, { persist: true });
+        await this.collection(collectionName as keyof Schemas, {
+          persist: true,
+        });
       }
     } catch (error) {
       console.error("Error initializing collections:", error);
@@ -59,36 +67,37 @@ export class MockStorage {
 
   /**
    * Gets or creates a collection with persistence
-   * @template T - Data type for the collection
+   * @template K - Key of the schema in Schemas
    * @param name - Unique name for the collection
    * @param options - Optional persistence options for this collection
-   * @returns Promise resolving to requested collection
+   * @returns Promise resolving to the requested collection
    */
-  public async collection<T>(
-    name: string,
+  public async collection<K extends keyof Schemas>(
+    name: K,
     options?: MockPersistOptions
-  ): Promise<MockCollection<T>> {
+  ): Promise<MockCollection<Schemas[K]>> {
     if (!this.collections.has(name)) {
-      const collection = new MockCollection<T>();
+      const schema: Schemas[K] = this.schemas[name];
+      const collection = new MockCollection<Schemas[K]>(schema);
 
-      const persistConfig: MockPersistConfig<T> = {
-        name,
+      const persistConfig: MockPersistConfig<Schemas[K]> = {
+        name: name as string,
         collection,
         options: options || this.config.persister,
       };
-      const persist = new MockPersist<T>(persistConfig);
+      const persist = new MockPersist<Schemas[K]>(persistConfig);
 
       try {
         await persist.pull();
       } catch (error) {
-        console.warn(`Failed to initialize collection ${name}:`, error);
+        console.warn(`Failed to initialize collection ${String(name)}:`, error);
       }
 
       this.collections.set(name, collection);
       this.persisters.set(name, persist);
     }
 
-    return this.collections.get(name) as MockCollection<T>;
+    return this.collections.get(name) as MockCollection<Schemas[K]>;
   }
 
   /**
@@ -97,7 +106,7 @@ export class MockStorage {
    * @param options - New persistence options
    */
   public configureCollection(
-    name: string,
+    name: keyof Schemas,
     options: Partial<MockPersistOptions>
   ): void {
     const persist = this.persisters.get(name);
@@ -110,9 +119,9 @@ export class MockStorage {
    * Commits changes to a specific collection
    * @param name - Name of the collection to commit
    */
-  public async commit(name: string): Promise<void> {
+  public async commit(name: keyof Schemas): Promise<void> {
     const persist = this.persisters.get(name);
-    if (!persist) throw new Error(`Collection ${name} not found`);
+    if (!persist) throw new Error(`Collection ${String(name)} not found`);
     await persist.commit();
   }
 
@@ -129,7 +138,7 @@ export class MockStorage {
    * Gets list of all collection names in the storage
    * @returns Array of collection names
    */
-  public listCollections(): string[] {
+  public listCollections(): (keyof Schemas)[] {
     return Array.from(this.collections.keys());
   }
 
@@ -138,7 +147,7 @@ export class MockStorage {
    * @param name - Collection name to check
    * @returns `true` if collection exists, `false` otherwise
    */
-  public hasCollection(name: string): boolean {
+  public hasCollection(name: keyof Schemas): boolean {
     return this.collections.has(name);
   }
 
@@ -163,7 +172,7 @@ export class MockStorage {
         const count = (await collection.all()).length;
 
         return {
-          collection: name,
+          collection: name as string,
           meta: healthMeta,
           count,
         };
@@ -185,14 +194,14 @@ export class MockStorage {
    * @returns Health information in the format:
    * { collection: string, meta: health, count: number }
    */
-  public async getCollectionHealth(name: string) {
+  public async getCollectionHealth<K extends keyof Schemas>(name: K) {
     const collection = this.collections.get(name);
     const persister = this.persisters.get(name);
     const healthMeta = persister ? await persister.health() : {};
     const count = collection ? (await collection.all()).length : 0;
 
     return {
-      collection: name,
+      collection: name as string,
       meta: healthMeta,
       count,
     };

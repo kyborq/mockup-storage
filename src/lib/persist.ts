@@ -1,34 +1,47 @@
 import fs from "fs/promises";
 import path from "path";
 import { MockCollection } from "./collection";
-import { MockView } from "./record";
+import { MockRecordSchema, MockView } from "./record";
 import { MOCK_PERSIST_DIRECTORY } from "../constants";
 
 /**
  * Configuration options for MockPersist
  */
 export interface MockPersistOptions {
+  /** Whether to persist the collection data to the file system */
   persist: boolean;
 }
 
 /**
  * Configuration object for MockPersist constructor
- * @template T - Data type stored in the collection
+ * @template T - The data type stored in the collection
  */
-export interface MockPersistConfig<T> {
+export interface MockPersistConfig<T extends MockRecordSchema> {
   /** Unique name for the collection */
   name: string;
-  /** Collection instance to persist */
+  /** Instance of the MockCollection to persist */
   collection: MockCollection<T>;
   /** Persistence configuration options */
   options?: MockPersistOptions;
 }
 
 /**
- * Persistence handler for MockCollection that syncs data with JSON files
- * @template T - Data type stored in the collection
+ * Metadata about persisted storage
  */
-export class MockPersist<T> {
+export interface MockPersistHealth {
+  /** File size in bytes */
+  size?: number;
+  /** File creation date */
+  createdAt?: Date;
+  /** Last modified date of the file */
+  lastModified?: Date;
+}
+
+/**
+ * Persistence handler for MockCollection that syncs data with JSON files
+ * @template T - The data type stored in the collection
+ */
+export class MockPersist<T extends MockRecordSchema> {
   private name: string;
   private collection: MockCollection<T>;
   private options: Required<MockPersistOptions>;
@@ -43,9 +56,8 @@ export class MockPersist<T> {
   constructor(config: MockPersistConfig<T>) {
     this.name = config.name;
     this.collection = config.collection;
-    this.options = config.options || {
-      persist: false,
-    };
+
+    this.options = { persist: false, ...config.options };
 
     this.commitCallback = () => {
       if (this.options.persist) {
@@ -64,7 +76,8 @@ export class MockPersist<T> {
 
   /**
    * Loads data from persistent storage into the collection
-   * @throws {SyntaxError} If file contains invalid JSON
+   * @throws {SyntaxError} If the file contains invalid JSON
+   * @returns {Promise<void>}
    */
   public async pull(): Promise<void> {
     if (!this.options.persist) return;
@@ -84,6 +97,7 @@ export class MockPersist<T> {
   /**
    * Saves collection data to persistent storage
    * @throws {Error} On filesystem write errors
+   * @returns {Promise<void>}
    */
   public async commit(): Promise<void> {
     if (!this.options.persist) return;
@@ -99,19 +113,22 @@ export class MockPersist<T> {
       await fs.mkdir(dirPath, { recursive: true });
     }
 
-    await fs.writeFile(filePath, content, {
-      encoding: "utf-8",
-    });
+    await fs.writeFile(filePath, content, { encoding: "utf-8" });
   }
 
   /**
    * Updates persistence configuration
-   * @param options - New options to merge with current configuration
+   * @param {Partial<MockPersistOptions>} options - New options to merge with current configuration
+   * @returns {void}
    */
   public configure(options: Partial<MockPersistOptions>): void {
     this.options = { ...this.options, ...options };
   }
 
+  /**
+   * Gets the file path for the collection's persistent storage
+   * @returns {string} The file path for the persisted data
+   */
   private getFilePath(): string {
     return path.join(
       process.cwd(),
@@ -120,7 +137,11 @@ export class MockPersist<T> {
     );
   }
 
-  public async health() {
+  /**
+   * Retrieves metadata about the persisted collection
+   * @returns {Promise<MockPersistHealth>} Health metadata including file size and timestamps
+   */
+  public async health(): Promise<MockPersistHealth> {
     const filePath = this.getFilePath();
 
     try {

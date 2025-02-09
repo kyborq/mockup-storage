@@ -1,5 +1,10 @@
 import { Mutex } from "async-mutex";
-import { MockRecord, MockView } from "./record";
+import {
+  MockRecord,
+  MockView,
+  MockRecordSchema,
+  InferSchemaType,
+} from "./record";
 
 /**
  * A filter function type that determines whether a record should be included.
@@ -11,19 +16,21 @@ export type MockFilter<T> = (record: MockView<T>) => boolean;
 
 /**
  * A collection of mock records that supports insertion, retrieval, filtering, and deletion.
- * @template T - The type of the record data.
+ * @template S - The schema of the records.
  */
-export class MockCollection<T> {
+export class MockCollection<S extends MockRecordSchema> {
   private mutex = new Mutex();
-
-  private records: Map<string, MockRecord<T>>;
+  private records: Map<string, MockRecord<S>>;
+  private schema: S;
   private onModifyCallbacks: (() => void)[] = [];
 
   /**
    * Creates a new `MockCollection` instance.
+   * @param schema - The schema defining the structure and types of records in the collection.
    */
-  constructor() {
-    this.records = new Map<string, MockRecord<T>>();
+  constructor(schema: S) {
+    this.schema = schema;
+    this.records = new Map<string, MockRecord<S>>();
   }
 
   /**
@@ -49,17 +56,18 @@ export class MockCollection<T> {
   }
 
   /**
-   * Initializes the collection with data
-   * @param data - Array of record views to initialize
+   * Initializes the collection with data.
+   * Validates records against the schema before adding them.
+   * @param data - Array of record views to initialize.
    */
-  public async init(data: MockView<T>[]): Promise<void> {
+  public async init(data: MockView<S>[]): Promise<void> {
     const release = await this.mutex.acquire();
 
     try {
       this.records.clear();
       data.forEach((view) => {
         const { id, ...rest } = view;
-        const record = new MockRecord<T>({ id, ...(rest as T) });
+        const record = new MockRecord<S>(rest as any, this.schema);
         this.records.set(id, record);
       });
       this.triggerModify();
@@ -69,15 +77,18 @@ export class MockCollection<T> {
   }
 
   /**
-   * Adds a new record to the collection
-   * @param value - The data to store in the record
-   * @returns Promise resolving to the added record view
+   * Adds a new record to the collection.
+   * @param value - The data to store in the record.
+   * @returns Promise resolving to the added record view.
+   * @throws Error if the record does not match the schema.
    */
-  public async add(value: T): Promise<MockView<T>> {
+  public async add(
+    value: InferSchemaType<S>
+  ): Promise<MockView<InferSchemaType<S>>> {
     const release = await this.mutex.acquire();
 
     try {
-      const record = new MockRecord<T>(value);
+      const record = new MockRecord(value, this.schema);
       const view = record.view();
       this.records.set(view.id, record);
       this.triggerModify();
@@ -88,10 +99,10 @@ export class MockCollection<T> {
   }
 
   /**
-   * Retrieves all records in the collection
-   * @returns Promise resolving to array of record views
+   * Retrieves all records in the collection.
+   * @returns Promise resolving to an array of record views.
    */
-  public async all(): Promise<MockView<T>[]> {
+  public async all(): Promise<MockView<InferSchemaType<S>>[]> {
     const release = await this.mutex.acquire();
 
     try {
@@ -102,11 +113,13 @@ export class MockCollection<T> {
   }
 
   /**
-   * Finds records that match the given filter condition
-   * @param callback - Filter function to determine matches
-   * @returns Promise resolving to array of matching records
+   * Finds records that match the given filter condition.
+   * @param callback - Filter function to determine matches.
+   * @returns Promise resolving to an array of matching records.
    */
-  public async find(callback: MockFilter<T>): Promise<MockView<T>[]> {
+  public async find(
+    callback: MockFilter<InferSchemaType<S>>
+  ): Promise<MockView<InferSchemaType<S>>[]> {
     const release = await this.mutex.acquire();
 
     try {
@@ -119,11 +132,13 @@ export class MockCollection<T> {
   }
 
   /**
-   * Finds the first record matching the filter condition
-   * @param callback - Filter function to determine match
-   * @returns Promise resolving to found record or null
+   * Finds the first record matching the filter condition.
+   * @param callback - Filter function to determine match.
+   * @returns Promise resolving to the found record or null.
    */
-  public async first(callback: MockFilter<T>): Promise<MockView<T> | null> {
+  public async first(
+    callback: MockFilter<InferSchemaType<S>>
+  ): Promise<MockView<InferSchemaType<S>> | null> {
     const release = await this.mutex.acquire();
 
     try {
@@ -138,30 +153,11 @@ export class MockCollection<T> {
   }
 
   /**
-   * Filters the collection in place based on callback
-   * @param callback - Filter function to determine which records to keep
+   * Retrieves a record by its ID.
+   * @param id - ID of the record to retrieve.
+   * @returns Promise resolving to the found record or null.
    */
-  public async filter(callback: MockFilter<T>): Promise<void> {
-    const release = await this.mutex.acquire();
-
-    try {
-      const idsToRemove = Array.from(this.records.entries())
-        .filter(([_, record]) => !callback(record.view()))
-        .map(([id]) => id);
-
-      idsToRemove.forEach((id) => this.records.delete(id));
-      this.triggerModify();
-    } finally {
-      release();
-    }
-  }
-
-  /**
-   * Retrieves a record by its ID
-   * @param id - ID of the record to retrieve
-   * @returns Promise resolving to found record or null
-   */
-  public async get(id: string): Promise<MockView<T> | null> {
+  public async get(id: string): Promise<MockView<InferSchemaType<S>> | null> {
     const release = await this.mutex.acquire();
 
     try {
@@ -173,9 +169,9 @@ export class MockCollection<T> {
   }
 
   /**
-   * Removes a record from the collection by ID
-   * @param id - ID of the record to remove
-   * @returns Promise resolving to boolean indicating success
+   * Removes a record from the collection by ID.
+   * @param id - ID of the record to remove.
+   * @returns Promise resolving to a boolean indicating success.
    */
   public async remove(id: string): Promise<boolean> {
     const release = await this.mutex.acquire();
@@ -186,6 +182,25 @@ export class MockCollection<T> {
         this.triggerModify();
       }
       return result;
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Filters the collection in place based on the callback.
+   * @param callback - Filter function to determine which records to keep.
+   */
+  public async filter(callback: MockFilter<InferSchemaType<S>>): Promise<void> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const idsToRemove = Array.from(this.records.entries())
+        .filter(([_, record]) => !callback(record.view()))
+        .map(([id]) => id);
+
+      idsToRemove.forEach((id) => this.records.delete(id));
+      this.triggerModify();
     } finally {
       release();
     }
