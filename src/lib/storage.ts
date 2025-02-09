@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { MockCollection } from "./collection";
 import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
 import { MOCK_PERSIST_DIRECTORY } from "../constants";
-import { InferSchemaType, MockRecordSchema, MockView } from "./record";
+import { MockRecordSchema } from "./record";
 
 /**
  * Configuration options for mock storage initialization
@@ -95,24 +95,26 @@ export class MockStorage<
    */
   public async collection<S extends MockRecordSchema>(
     name: string,
-    config: { schema?: S; options?: MockPersistOptions }
-  ): Promise<MockCollection<S>>;
-
-  /**
-   * Implementation for collection getter/create
-   */
-  public async collection<S extends MockRecordSchema>(
-    name: string,
-    config: { schema: S; options?: MockPersistOptions }
+    config?: { schema?: S; options?: MockPersistOptions }
   ): Promise<MockCollection<S>> {
-    (this.schemas as Record<string, MockRecordSchema>)[name] = config.schema;
+    if (config?.schema) {
+      (this.schemas as Record<string, MockRecordSchema>)[name] = config.schema;
+    }
 
     if (!this.collections.has(name)) {
-      const collection = new MockCollection(config.schema);
+      const schema = config?.schema || this.schemas[name];
+
+      if (!schema) {
+        throw new Error(
+          `Schema for collection "${name}" not found. Provide it in config or global schemas.`
+        );
+      }
+
+      const collection = new MockCollection(schema);
       const persistConfig: MockPersistConfig<any> = {
         name,
         collection,
-        options: config.options || this.config.persister,
+        options: config?.options || this.config.persister,
       };
 
       const persist = new MockPersist(persistConfig);
