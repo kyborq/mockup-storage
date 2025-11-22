@@ -6,20 +6,45 @@ import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
 import { DEFAULT_DB_PATH } from "../constants";
 import { MockRecordSchema, MockView } from "./record";
 import { RelationManager, RelationConfig, Relation } from "./relations";
-import { DatabaseSchemas, CollectionSchema, toSimpleSchema, toSimpleSchemaRuntime, extractRelationConfigs, InferRecordType } from "./schema";
+import {
+  DatabaseSchemas,
+  CollectionSchema,
+  toSimpleSchema,
+  toSimpleSchemaRuntime,
+  extractRelationConfigs,
+  InferRecordType,
+} from "./schema";
 import { DatabaseFile } from "./database-file";
 
 /**
  * Typed wrapper for MockCollection with proper schema inference
  */
 export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
-  add(value: InferRecordType<Schema>): Promise<MockView<InferRecordType<Schema> & { id: string }>>;
+  add(
+    value: InferRecordType<Schema>
+  ): Promise<MockView<InferRecordType<Schema> & { id: string }>>;
   all(): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
-  find(filter: (record: MockView<InferRecordType<Schema> & { id: string }>) => boolean): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
-  first(filter: (record: MockView<InferRecordType<Schema> & { id: string }>) => boolean): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
-  get(id: string): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  allInternal(): Promise<
+    Array<MockView<InferRecordType<Schema> & { id: string }>>
+  >;
+  find(
+    filter: (
+      record: MockView<InferRecordType<Schema> & { id: string }>
+    ) => boolean
+  ): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
+  first(
+    filter: (
+      record: MockView<InferRecordType<Schema> & { id: string }>
+    ) => boolean
+  ): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  get(
+    id: string
+  ): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
   remove(id: string): Promise<boolean>;
-  update(id: string, updates: Partial<InferRecordType<Schema>>): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  update(
+    id: string,
+    updates: Partial<InferRecordType<Schema>>
+  ): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
   findByField<K extends keyof InferRecordType<Schema>>(
     field: K,
     value: InferRecordType<Schema>[K]
@@ -36,25 +61,44 @@ export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
   }): Promise<void>;
   dropIndex(name: string): Promise<void>;
   listIndexes(): string[];
-  getIndexStats(): Array<{ name: string; field: string; unique: boolean; size: number }>;
+  getIndexStats(): Array<{
+    name: string;
+    field: string;
+    unique: boolean;
+    size: number;
+  }>;
   getSchema(): MockRecordSchema;
-  init(data: Array<MockView<InferRecordType<Schema> & { id: string }>>): Promise<void>;
+  init(
+    data: Array<MockView<InferRecordType<Schema> & { id: string }>>
+  ): Promise<void>;
   onModify(callback: () => void): void;
   offModify(callback: () => void): void;
-  
+
   // Join methods for relations
   innerJoin<TargetSchema extends CollectionSchema<any>>(
     targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
     sourceField: keyof InferRecordType<Schema>,
     targetField?: keyof InferRecordType<TargetSchema> | "id"
-  ): Promise<Array<MockView<InferRecordType<Schema> & { id: string }> & { joined: MockView<InferRecordType<TargetSchema> & { id: string }> }>>;
-  
+  ): Promise<
+    Array<
+      MockView<InferRecordType<Schema> & { id: string }> & {
+        joined: MockView<InferRecordType<TargetSchema> & { id: string }>;
+      }
+    >
+  >;
+
   leftJoin<TargetSchema extends CollectionSchema<any>>(
     targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
     sourceField: keyof InferRecordType<Schema>,
     targetField?: keyof InferRecordType<TargetSchema> | "id"
-  ): Promise<Array<MockView<InferRecordType<Schema> & { id: string }> & { joined: MockView<InferRecordType<TargetSchema> & { id: string }> | null }>>;
-  
+  ): Promise<
+    Array<
+      MockView<InferRecordType<Schema> & { id: string }> & {
+        joined: MockView<InferRecordType<TargetSchema> & { id: string }> | null;
+      }
+    >
+  >;
+
   getRelated<TargetSchema extends CollectionSchema<any>>(
     targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
     sourceField: keyof InferRecordType<Schema>,
@@ -118,8 +162,11 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     if (this.relationsInitialized) return;
 
     for (const [collectionName, schema] of Object.entries(this.schemas)) {
-      const relations = extractRelationConfigs(collectionName, schema as CollectionSchema<any>);
-      
+      const relations = extractRelationConfigs(
+        collectionName,
+        schema as CollectionSchema<any>
+      );
+
       for (const relationConfig of relations) {
         const sourceCol = this.collections.get(relationConfig.sourceCollection);
         const targetCol = this.collections.get(relationConfig.targetCollection);
@@ -132,7 +179,10 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
               targetCollection: targetCol,
             });
           } catch (error) {
-            console.warn(`Failed to initialize relation ${relationConfig.name}:`, error);
+            console.warn(
+              `Failed to initialize relation ${relationConfig.name}:`,
+              error
+            );
           }
         }
       }
@@ -143,14 +193,14 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
 
   public async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     this.initialized = true;
     this.isInitializing = true;
     try {
       await this.databaseFile.load();
-      
+
       const collectionNames = this.databaseFile.listCollections();
-      
+
       for (const name of collectionNames) {
         const data = this.databaseFile.getCollection(name);
         if (data) {
@@ -158,12 +208,14 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
           if (!this.schemas[name as keyof Schemas]) {
             (this.schemas as any)[name] = data.schema;
           }
-          
-          const collection = await this.collection(name as any, { persist: true });
-          
+
+          const collection = await this.collection(name as any, {
+            persist: true,
+          });
+
           // Load data into collection
           await collection.init(data.records);
-          
+
           // Restore indexes
           for (const indexConfig of data.indexes) {
             try {
@@ -199,7 +251,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     if (!this.initialized && !this.isInitializing) {
       await this.initialize();
     }
-    
+
     const collectionName = name as string;
 
     if (!this.collections.has(collectionName)) {
@@ -211,7 +263,9 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
         );
       }
 
-      const simpleSchema = toSimpleSchemaRuntime(schema as CollectionSchema<any>);
+      const simpleSchema = toSimpleSchemaRuntime(
+        schema as CollectionSchema<any>
+      );
       const collection = new MockCollection(schema as CollectionSchema<any>);
       const persistConfig: MockPersistConfig<typeof simpleSchema> = {
         name: collectionName,
@@ -220,7 +274,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       };
 
       const persist = new MockPersist(persistConfig);
-      
+
       // Only pull if not initializing (to avoid overwriting loaded data)
       if (!this.isInitializing) {
         await persist.pull();
@@ -242,7 +296,9 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       this.initializeRelations();
     }
 
-    return this.collections.get(collectionName)! as any as TypedMockCollection<Schemas[Name]>;
+    return this.collections.get(collectionName)! as any as TypedMockCollection<
+      Schemas[Name]
+    >;
   }
 
   /**
@@ -273,13 +329,13 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
 
   private scheduleAutoCommit(): void {
     if (this.pendingCommit) return;
-    
+
     this.pendingCommit = true;
-    
+
     if (this.autoCommitTimer) {
       clearTimeout(this.autoCommitTimer);
     }
-    
+
     this.autoCommitTimer = setTimeout(() => {
       this.commitAll()
         .then(() => {
@@ -295,9 +351,12 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   public async commitAll(): Promise<void> {
     for (const [name, collection] of this.collections.entries()) {
       const schema = collection.getSchema();
-      const records = await collection.all();
+      // Use allInternal to get records including hidden fields
+      const records = await collection.allInternal();
       const indexes = collection.listIndexes().map((idxName) => {
-        const stats = collection.getIndexStats().find((s) => s.name === idxName);
+        const stats = collection
+          .getIndexStats()
+          .find((s) => s.name === idxName);
         return {
           name: idxName,
           field: stats?.field || "",
@@ -389,11 +448,11 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
    * @param config - Relation configuration
    * @returns Relation instance
    */
-  public defineRelation<
-    S1 extends keyof Schemas,
-    S2 extends keyof Schemas
-  >(
-    config: Omit<RelationConfig<any, any>, "sourceCollection" | "targetCollection"> & {
+  public defineRelation<S1 extends keyof Schemas, S2 extends keyof Schemas>(
+    config: Omit<
+      RelationConfig<any, any>,
+      "sourceCollection" | "targetCollection"
+    > & {
       sourceCollection: S1;
       targetCollection: S2;
     }
@@ -402,10 +461,14 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     const targetCol = this.collections.get(config.targetCollection as string);
 
     if (!sourceCol) {
-      throw new Error(`Source collection "${String(config.sourceCollection)}" not found`);
+      throw new Error(
+        `Source collection "${String(config.sourceCollection)}" not found`
+      );
     }
     if (!targetCol) {
-      throw new Error(`Target collection "${String(config.targetCollection)}" not found`);
+      throw new Error(
+        `Target collection "${String(config.targetCollection)}" not found`
+      );
     }
 
     return this.relationManager.defineRelation({

@@ -55,10 +55,10 @@ export class MockCollection<S extends MockRecordSchema> {
     this.schema = toSimpleSchemaRuntime(schema as CollectionSchema<any>) as S;
     this.btree = new BTree<string, MockRecord<S>>(64);
     this.indexManager = new IndexManager<S>();
-    
+
     // Extract hidden fields from schema
     this.hiddenFields = extractHiddenFields(schema as CollectionSchema<any>);
-    
+
     // Auto-create indexes from schema
     this.initializeAutoIndexes(schema as CollectionSchema<any>);
   }
@@ -66,11 +66,13 @@ export class MockCollection<S extends MockRecordSchema> {
   /**
    * Initializes indexes defined in the schema
    */
-  private async initializeAutoIndexes(schema: CollectionSchema<any>): Promise<void> {
+  private async initializeAutoIndexes(
+    schema: CollectionSchema<any>
+  ): Promise<void> {
     if (this.autoIndexesCreated) return;
-    
+
     const indexConfigs = extractIndexConfigs(schema);
-    
+
     for (const config of indexConfigs) {
       try {
         await this.createIndex({
@@ -82,7 +84,7 @@ export class MockCollection<S extends MockRecordSchema> {
         console.warn(`Failed to auto-create index for ${config.field}:`, error);
       }
     }
-    
+
     this.autoIndexesCreated = true;
   }
 
@@ -113,11 +115,15 @@ export class MockCollection<S extends MockRecordSchema> {
    * @param view - Record view to filter
    * @returns Filtered view without hidden fields
    */
-  private filterHidden(view: MockView<InferSchemaType<S>>): MockView<InferSchemaType<S>> {
+  private filterHidden(
+    view: MockView<InferSchemaType<S>>
+  ): MockView<InferSchemaType<S>> {
     if (this.hiddenFields.length === 0) {
       return view;
     }
-    return filterHiddenFields(view, this.hiddenFields) as MockView<InferSchemaType<S>>;
+    return filterHiddenFields(view, this.hiddenFields) as MockView<
+      InferSchemaType<S>
+    >;
   }
 
   /**
@@ -130,13 +136,13 @@ export class MockCollection<S extends MockRecordSchema> {
     try {
       this.btree.clear();
       this.indexManager.clearAll();
-      
+
       data.forEach((view) => {
         const { id, ...rest } = view;
         const record = new MockRecord<S>(rest as any, this.schema, id);
         this.btree.insert(id, record);
       });
-      
+
       // Rebuild indexes
       this.indexManager.rebuildAll(data);
       this.triggerModify();
@@ -159,13 +165,18 @@ export class MockCollection<S extends MockRecordSchema> {
     try {
       const record = new MockRecord(value, this.schema);
       const view = record.view();
-      
-      // Add to B-Tree
+
+      // First try to add to indexes (validates unique constraints)
+      try {
+        this.indexManager.addToIndexes(view);
+      } catch (error) {
+        // If index validation fails, don't add to B-Tree
+        throw error;
+      }
+
+      // Only add to B-Tree if index validation passed
       this.btree.insert(view.id, record);
-      
-      // Add to indexes
-      this.indexManager.addToIndexes(view);
-      
+
       this.triggerModify();
       return this.filterHidden(view);
     } finally {
@@ -181,7 +192,24 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      return this.btree.toArray().map((entry) => this.filterHidden(entry.value.view()));
+      return this.btree
+        .toArray()
+        .map((entry) => this.filterHidden(entry.value.view()));
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Retrieves all records in the collection without filtering hidden fields.
+   * Used internally for persistence.
+   * @returns Promise resolving to an array of record views including hidden fields.
+   */
+  public async allInternal(): Promise<MockView<InferSchemaType<S>>[]> {
+    const release = await this.mutex.acquire();
+
+    try {
+      return this.btree.toArray().map((entry) => entry.value.view());
     } finally {
       release();
     }
@@ -200,7 +228,8 @@ export class MockCollection<S extends MockRecordSchema> {
 
     try {
       // Get all records from B-Tree and filter
-      return this.btree.toArray()
+      return this.btree
+        .toArray()
         .map((entry) => entry.value.view())
         .filter(callback)
         .map((view) => this.filterHidden(view));
@@ -260,18 +289,18 @@ export class MockCollection<S extends MockRecordSchema> {
       // Get record before deletion for index removal
       const record = this.btree.search(id);
       if (!record) return false;
-      
+
       const view = record.view();
-      
+
       // Remove from B-Tree
       const result = this.btree.delete(id);
-      
+
       if (result) {
         // Remove from indexes
         this.indexManager.removeFromIndexes(view);
         this.triggerModify();
       }
-      
+
       return result;
     } finally {
       release();
@@ -298,7 +327,7 @@ export class MockCollection<S extends MockRecordSchema> {
           this.btree.delete(id);
         }
       }
-      
+
       this.triggerModify();
     } finally {
       release();
@@ -317,7 +346,7 @@ export class MockCollection<S extends MockRecordSchema> {
         ...config,
         field: config.field as string,
       });
-      
+
       // Build index from existing records
       const records = this.btree.toArray().map((entry) => entry.value.view());
       for (const record of records) {
@@ -375,7 +404,7 @@ export class MockCollection<S extends MockRecordSchema> {
 
     try {
       const index = this.indexManager.getIndexByField(field as string);
-      
+
       if (index) {
         // Use index for O(log n) lookup
         const id = index.search(value);
@@ -409,10 +438,12 @@ export class MockCollection<S extends MockRecordSchema> {
 
     try {
       const index = this.indexManager.getIndexByField(field as string);
-      
+
       if (!index) {
         throw new Error(
-          `No index found on field "${String(field)}". Create an index first for range queries.`
+          `No index found on field "${String(
+            field
+          )}". Create an index first for range queries.`
         );
       }
 
@@ -467,10 +498,16 @@ export class MockCollection<S extends MockRecordSchema> {
   public async innerJoin<T extends MockRecordSchema>(
     targetCollection: MockCollection<T>,
     sourceField: keyof InferSchemaType<S>,
-    targetField: keyof InferSchemaType<T> = 'id' as keyof InferSchemaType<T>
-  ): Promise<Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> }>> {
+    targetField: keyof InferSchemaType<T> = "id" as keyof InferSchemaType<T>
+  ): Promise<
+    Array<
+      MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> }
+    >
+  > {
     const sourceRecords = await this.all();
-    const results: Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> }> = [];
+    const results: Array<
+      MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> }
+    > = [];
 
     for (const sourceRecord of sourceRecords) {
       const foreignKeyValue = (sourceRecord as any)[sourceField];
@@ -501,10 +538,20 @@ export class MockCollection<S extends MockRecordSchema> {
   public async leftJoin<T extends MockRecordSchema>(
     targetCollection: MockCollection<T>,
     sourceField: keyof InferSchemaType<S>,
-    targetField: keyof InferSchemaType<T> = 'id' as keyof InferSchemaType<T>
-  ): Promise<Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> | null }>> {
+    targetField: keyof InferSchemaType<T> = "id" as keyof InferSchemaType<T>
+  ): Promise<
+    Array<
+      MockView<InferSchemaType<S>> & {
+        joined: MockView<InferSchemaType<T>> | null;
+      }
+    >
+  > {
     const sourceRecords = await this.all();
-    const results: Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> | null }> = [];
+    const results: Array<
+      MockView<InferSchemaType<S>> & {
+        joined: MockView<InferSchemaType<T>> | null;
+      }
+    > = [];
 
     for (const sourceRecord of sourceRecords) {
       const foreignKeyValue = (sourceRecord as any)[sourceField];
@@ -545,7 +592,9 @@ export class MockCollection<S extends MockRecordSchema> {
     // Get all unique values from source field
     const sourceRecords = await this.all();
     const uniqueValues = new Set(
-      sourceRecords.map((record) => (record as any)[sourceField]).filter((v) => v != null)
+      sourceRecords
+        .map((record) => (record as any)[sourceField])
+        .filter((v) => v != null)
     );
 
     const results: MockView<InferSchemaType<T>>[] = [];
