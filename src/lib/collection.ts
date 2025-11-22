@@ -115,7 +115,7 @@ export class MockCollection<S extends MockRecordSchema> {
       
       data.forEach((view) => {
         const { id, ...rest } = view;
-        const record = new MockRecord<S>(rest as any, this.schema);
+        const record = new MockRecord<S>(rest as any, this.schema, id);
         this.btree.insert(id, record);
       });
       

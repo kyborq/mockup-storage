@@ -43,9 +43,10 @@ export class MockRecord<T extends MockRecordSchema> {
    * Creates a new `MockRecord` instance.
    * @param record - The data to store in the record.
    * @param schema - The schema defining the structure and types of the record.
+   * @param id - Optional ID for the record (used when loading from storage)
    */
-  constructor(record: InferSchemaType<T>, schema?: T) {
-    this.id = uuid();
+  constructor(record: InferSchemaType<T>, schema?: T, id?: string) {
+    this.id = id || uuid();
     this.schema = schema;
 
     if (schema) {

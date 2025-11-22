@@ -1,6 +1,6 @@
 {
   "name": "mockup-storage",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "Production-ready embedded database engine with B-Tree indexing, binary storage, and full ACID compliance. Inspired by SQLite and MongoDB.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

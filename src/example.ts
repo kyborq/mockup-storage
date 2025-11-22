@@ -26,17 +26,21 @@ const main = async () => {
   // Auto-loads existing data from database.mdb
   const books = await storage.collection("books");
 
-  // Add some books
-  await books.add({
-    title: "TypeScript Handbook",
-    author: "Microsoft",
-    year: 2023,
-  });
-  await books.add({
-    title: "JavaScript: The Good Parts",
-    author: "Douglas Crockford",
-    year: 2008,
-  });
+  // Add books only if collection is empty
+  const existingBooks = await books.all();
+  if (existingBooks.length === 0) {
+    console.log("Adding initial books...\n");
+    await books.add({
+      title: "TypeScript Handbook",
+      author: "Microsoft",
+      year: 2023,
+    });
+    await books.add({
+      title: "JavaScript: The Good Parts",
+      author: "Douglas Crockford",
+      year: 2008,
+    });
+  }
 
   console.log("All books:", await books.all());
 
