@@ -17,20 +17,20 @@ npm install mockup-storage
 
 ## Quick Start
 
-Mockup Storage now uses **schema definitions** to enforce type safety. Define your collection schemas as an object whose keys are the collection names and whose values are objects mapping field names to type literals (`"string"`, `"number"`, `"boolean"`, or `"datetime"`).
+Mockup Storage uses **enhanced schema definitions** with built-in index and constraint support. Define your schemas declaratively with full type safety.
 
-### Basic Usage
+### Basic Usage (Simple Schema)
 
 ```typescript
 import { MockStorage } from "mockup-storage";
 
-// Define schemas for your collections
-interface Schemas {
+// Simple schema format
+type Schemas = {
   users: {
     name: "string";
     age: "number";
   };
-}
+};
 
 const schemas: Schemas = {
   users: {
@@ -40,19 +40,56 @@ const schemas: Schemas = {
 };
 
 async function main() {
-  // Initialize storage with schema definitions
   const storage = new MockStorage(schemas);
-
-  // Get or create the "users" collection
   const users = await storage.collection("users");
 
-  // Add records (data is validated against the schema)
   await users.add({ name: "Alice", age: 28 });
   await users.add({ name: "Bob", age: 32 });
 
-  // Query data (each record automatically gets a unique ID)
   const adults = await users.find((user) => user.age >= 18);
   console.log(adults);
+}
+
+main();
+```
+
+### Enhanced Schema (Recommended)
+
+```typescript
+import { MockStorage, EnhancedSchema } from "mockup-storage";
+
+// ✨ Enhanced schema with indexes and constraints
+type Schemas = {
+  users: EnhancedSchema;
+};
+
+const schemas: Schemas = {
+  users: {
+    name: {
+      type: "string",
+    },
+    email: {
+      type: "string",
+      index: true,   // 🎯 Auto-creates index
+      unique: true,  // 🎯 Unique constraint
+    },
+    age: {
+      type: "number",
+      index: true,   // 🎯 Fast range queries
+    },
+  },
+};
+
+async function main() {
+  const storage = new MockStorage(schemas);
+  const users = await storage.collection("users");
+
+  // Indexes are automatically created!
+  await users.add({ name: "Alice", email: "alice@example.com", age: 28 });
+
+  // Fast O(log n) lookup using index
+  const alice = await users.findByField("email", "alice@example.com");
+  console.log(alice);
 }
 
 main();
@@ -228,51 +265,44 @@ concurrentAccess();
 
 ## Indexing & Performance
 
-### Creating Indexes
+### Declarative Indexes (Recommended)
 
-Indexes dramatically improve query performance for large datasets:
+Define indexes directly in your schema - they're created automatically:
 
 ```typescript
-interface Schemas {
-  users: {
-    email: "string";
-    age: "number";
-    createdAt: "datetime";
-  };
-}
+import { MockStorage, EnhancedSchema } from "mockup-storage";
+
+type Schemas = {
+  users: EnhancedSchema;
+};
 
 const schemas: Schemas = {
   users: {
-    email: "string",
-    age: "number",
-    createdAt: "datetime",
+    email: {
+      type: "string",
+      index: true,   // 🎯 Auto-creates index
+      unique: true,  // 🎯 Unique constraint
+    },
+    age: {
+      type: "number",
+      index: true,   // 🎯 For range queries
+    },
+    name: {
+      type: "string",
+    },
   },
 };
 
-async function indexExample() {
-  const storage = new MockStorage(schemas, {
-    persister: { persist: true },
-  });
-
+async function main() {
+  const storage = new MockStorage(schemas);
   const users = await storage.collection("users");
 
-  // Create unique index on email (ensures no duplicates)
-  await users.createIndex({
-    name: "email_idx",
-    field: "email",
-    unique: true,
-  });
+  // Indexes are ALREADY created! No extra code needed.
 
-  // Create index on age for fast range queries
-  await users.createIndex({
-    name: "age_idx",
-    field: "age",
-  });
-
-  // O(log n) lookup using index
+  // Fast O(log n) lookups
   const user = await users.findByField("email", "alice@example.com");
 
-  // Fast range query using index
+  // Fast range queries
   const adults = await users.findByRange("age", 18, 65);
 
   // Get index statistics
@@ -280,7 +310,28 @@ async function indexExample() {
   console.log(stats);
 }
 
-indexExample();
+main();
+```
+
+### Programmatic Indexes (Alternative)
+
+You can also create indexes programmatically:
+
+```typescript
+const users = await storage.collection("users");
+
+// Create unique index on email (type-safe!)
+await users.createIndex({
+  name: "email_idx",
+  field: "email", // ✅ TypeScript autocomplete!
+  unique: true,
+});
+
+// Create index on age
+await users.createIndex({
+  name: "age_idx",
+  field: "age", // ✅ Only valid fields allowed
+});
 ```
 
 ### Query Optimization
@@ -288,12 +339,24 @@ indexExample();
 The engine automatically uses indexes when available:
 
 ```typescript
-// Without index: O(n) scan
+// Define schema with index
+const schemas = {
+  users: {
+    email: {
+      type: "string",
+      index: true, // Index created automatically
+    },
+  },
+};
+
+// Without using index: O(n) scan
 const user = await users.first((u) => u.email === "alice@example.com");
 
-// With index: O(log n) lookup
-await users.createIndex({ name: "email_idx", field: "email" });
+// With index: O(log n) lookup - MUCH faster!
 const user = await users.findByField("email", "alice@example.com");
+
+// Range queries also use indexes
+const youngUsers = await users.findByRange("age", 18, 30);
 ```
 
 ## Persistence & Storage Formats
@@ -509,6 +572,137 @@ Migration utilities for storage format conversion.
 - **JSON**: 245 KB
 - **Binary**: 147 KB (40% savings)
 - **Indexed lookup**: 0.01ms vs 2.3ms (230x faster)
+
+---
+
+## Relations & JOINs
+
+### Defining Relations (SQL-like Foreign Keys)
+
+Create relationships between collections with full type safety:
+
+```typescript
+import { MockStorage, EnhancedSchema } from "mockup-storage";
+
+type Schemas = {
+  users: EnhancedSchema;
+  posts: EnhancedSchema;
+};
+
+const schemas: Schemas = {
+  users: {
+    name: { type: "string" },
+    email: { type: "string", unique: true, index: true },
+  },
+  posts: {
+    userId: { type: "string", index: true }, // Foreign key
+    title: { type: "string" },
+    content: { type: "string" },
+  },
+};
+
+async function main() {
+  const storage = new MockStorage(schemas);
+  const users = await storage.collection("users");
+  const posts = await storage.collection("posts");
+
+  // Create indexes on ID for JOIN performance
+  await users.createIndex({ name: "id_idx", field: "id" as any, unique: true });
+
+  const alice = await users.add({ name: "Alice", email: "alice@example.com" });
+  await posts.add({ userId: alice.id, title: "Hello", content: "World" });
+
+  // Define relation (type-safe!)
+  const userPostsRelation = storage.defineRelation({
+    name: "user_posts",
+    sourceCollection: "posts",    // ✅ Autocomplete!
+    targetCollection: "users",
+    sourceField: "userId",         // ✅ Type-checked!
+    targetField: "id" as any,
+    type: "one-to-many",
+    onDelete: "cascade",           // Delete posts when user deleted
+  });
+
+  // Perform INNER JOIN
+  const postsWithAuthors = await userPostsRelation.innerJoin();
+  postsWithAuthors.forEach((result) => {
+    console.log(`"${result.title}" by ${result.joined?.name}`);
+  });
+
+  // Validate referential integrity
+  const integrity = await userPostsRelation.validateIntegrity();
+  console.log(`Valid: ${integrity.valid}`);
+}
+
+main();
+```
+
+### JOIN Operations
+
+Support for INNER, LEFT, and RIGHT JOINs:
+
+```typescript
+// INNER JOIN - only matching records
+const inner = await relation.innerJoin();
+
+// LEFT JOIN - all source records, with matched targets (or null)
+const left = await relation.leftJoin();
+
+// RIGHT JOIN - all target records, with matched sources (or null)
+const right = await relation.rightJoin();
+```
+
+### Relation Types
+
+```typescript
+// One-to-One (user ↔ profile)
+storage.defineRelation({
+  name: "user_profile",
+  sourceCollection: "profiles",
+  targetCollection: "users",
+  sourceField: "userId",
+  targetField: "id" as any,
+  type: "one-to-one",
+});
+
+// One-to-Many (user → posts)
+storage.defineRelation({
+  name: "user_posts",
+  sourceCollection: "posts",
+  targetCollection: "users",
+  sourceField: "userId",
+  targetField: "id" as any,
+  type: "one-to-many",
+});
+
+// Many-to-Many (posts ← comments → users)
+storage.defineRelation({
+  name: "post_comments",
+  sourceCollection: "comments",
+  targetCollection: "posts",
+  sourceField: "postId",
+  targetField: "id" as any,
+  type: "many-to-many",
+});
+```
+
+### Cascade Delete
+
+```typescript
+const relation = storage.defineRelation({
+  name: "user_posts",
+  sourceCollection: "posts",
+  targetCollection: "users",
+  sourceField: "userId",
+  targetField: "id" as any,
+  type: "one-to-many",
+  onDelete: "cascade", // Options: "cascade", "set-null", "restrict"
+});
+
+// Delete user and all their posts
+await relation.handleDelete(userId);
+await users.remove(userId);
+```
 
 ---
 

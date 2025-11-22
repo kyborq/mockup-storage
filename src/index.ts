@@ -1,4 +1,4 @@
-import { MockStorage } from "./lib/storage";
+import { MockStorage, MockStorageConfig } from "./lib/storage";
 import { MockCollection, MockFilter } from "./lib/collection";
 import { MockRecord, MockView } from "./lib/record";
 import {
@@ -7,9 +7,27 @@ import {
   MockPersistOptions,
 } from "./lib/persist";
 import { BTree } from "./lib/btree";
-import { Index, IndexManager, IndexConfig, IndexStats } from "./lib/index";
+import { Index, IndexManager, IndexConfig, IndexStats, TypeSafeIndexConfig } from "./lib/index";
 import { BinaryStorage } from "./lib/binary-storage";
 import { Migration } from "./lib/migration";
+import {
+  Relation,
+  RelationManager,
+  RelationConfig,
+  RelationType,
+  JoinType,
+  JoinResult,
+} from "./lib/relations";
+import {
+  DatabaseSchemas,
+  CollectionSchema,
+  FieldDefinition,
+  FieldRelation,
+  toSimpleSchema,
+  extractIndexConfigs,
+  extractRelationConfigs,
+  InferRecordType,
+} from "./lib/schema";
 
 export {
   // Core classes
@@ -31,6 +49,7 @@ export {
   Index,
   IndexManager,
   IndexConfig,
+  TypeSafeIndexConfig,
   IndexStats,
   
   // Binary storage
@@ -38,4 +57,25 @@ export {
   
   // Migration utilities
   Migration,
+  
+  // Relations and JOINs
+  Relation,
+  RelationManager,
+  RelationConfig,
+  RelationType,
+  JoinType,
+  JoinResult,
+  
+  // Schema System
+  DatabaseSchemas,
+  CollectionSchema,
+  FieldDefinition,
+  FieldRelation,
+  toSimpleSchema,
+  extractIndexConfigs,
+  extractRelationConfigs,
+  InferRecordType,
+  
+  // Storage Config
+  MockStorageConfig,
 };

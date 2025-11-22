@@ -5,11 +5,13 @@ import { MockCollection } from "./collection";
 import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
 import { MOCK_PERSIST_DIRECTORY } from "../constants";
 import { MockRecordSchema } from "./record";
+import { RelationManager, RelationConfig, Relation } from "./relations";
+import { DatabaseSchemas, CollectionSchema, toSimpleSchema, extractRelationConfigs } from "./schema";
 
 /**
  * Configuration options for mock storage initialization
  */
-interface MockStorageConfig {
+export interface MockStorageConfig {
   /**
    * Default persistence options for all collections
    * @default { persist: false }
@@ -17,22 +19,21 @@ interface MockStorageConfig {
   persister?: MockPersistOptions;
 }
 
-type CollectionSchemas = Record<string, MockRecordSchema>;
-
 /**
- * Central storage manager for mock collections with optional persistence.
- * Supports both global schemas (defined at initialization) and local schemas (per collection).
- * @template Schemas - Type describing global schemas as a record of collection names to schemas
+ * Central storage manager for collections and persistence.
+ * @template Schemas - Database schemas mapping collection names to schemas
  */
-export class MockStorage<Schemas extends CollectionSchemas> {
+export class MockStorage<Schemas extends DatabaseSchemas> {
   private collections: Map<string, MockCollection<any>>;
   private persisters: Map<string, MockPersist<any>>;
   private config: MockStorageConfig;
   private schemas: Schemas;
+  private relationManager: RelationManager;
+  private relationsInitialized: boolean = false;
 
   /**
    * Creates a new MockStorage instance
-   * @param schemas - Optional global schemas definition
+   * @param schemas - Database schemas with field definitions
    * @param config - Storage configuration options
    */
   constructor(schemas?: Schemas, config: MockStorageConfig = {}) {
@@ -40,6 +41,37 @@ export class MockStorage<Schemas extends CollectionSchemas> {
     this.collections = new Map();
     this.persisters = new Map();
     this.config = config;
+    this.relationManager = new RelationManager();
+  }
+
+  /**
+   * Initializes all relations defined in schemas
+   */
+  private initializeRelations(): void {
+    if (this.relationsInitialized) return;
+
+    for (const [collectionName, schema] of Object.entries(this.schemas)) {
+      const relations = extractRelationConfigs(collectionName, schema as CollectionSchema);
+      
+      for (const relationConfig of relations) {
+        const sourceCol = this.collections.get(relationConfig.sourceCollection);
+        const targetCol = this.collections.get(relationConfig.targetCollection);
+
+        if (sourceCol && targetCol) {
+          try {
+            this.relationManager.defineRelation({
+              ...relationConfig,
+              sourceCollection: sourceCol,
+              targetCollection: targetCol,
+            });
+          } catch (error) {
+            console.warn(`Failed to initialize relation ${relationConfig.name}:`, error);
+          }
+        }
+      }
+    }
+
+    this.relationsInitialized = true;
   }
 
   /**
@@ -65,14 +97,10 @@ export class MockStorage<Schemas extends CollectionSchemas> {
           const data = await fs.readFile(filePath, "utf-8");
           const { schema } = JSON.parse(data);
 
-          (this.schemas as Record<string, MockRecordSchema>)[collectionName] =
-            schema;
+          (this.schemas as any)[collectionName] = schema;
 
-          await this.collection(collectionName, {
-            schema: schema,
-            options: {
-              persist: true,
-            },
+          await this.collection(collectionName as any, {
+            persist: true,
           });
         } catch (error) {
           console.error(`Error loading collection ${collectionName}:`, error);
@@ -83,52 +111,32 @@ export class MockStorage<Schemas extends CollectionSchemas> {
     }
   }
 
-  public async collection<Name extends keyof Schemas>(
-    name: Name
-  ): Promise<MockCollection<Schemas[Name]>>;
-
-  public async collection<S extends MockRecordSchema>(
-    name: string,
-    config: { schema?: S; options?: MockPersistOptions }
-  ): Promise<MockCollection<S>>;
-
   /**
-   * Gets or creates a collection with local schema
-   * @template S - Schema type for the collection
+   * Gets or creates a collection from defined schemas
    * @param name - Collection name
-   * @param config - Configuration with schema and persistence options
-   * @returns Promise resolving to the requested collection
+   * @param options - Optional persistence options
+   * @returns Promise resolving to the collection
    */
-  public async collection<
-    Name extends keyof Schemas,
-    S extends MockRecordSchema
-  >(
-    name: Name | string,
-    config?: { schema?: S; options?: MockPersistOptions }
-  ): Promise<MockCollection<S>> {
+  public async collection<Name extends keyof Schemas>(
+    name: Name,
+    options?: MockPersistOptions
+  ): Promise<MockCollection<any>> {
     const collectionName = name as string;
 
-    if (config?.schema) {
-      (this.schemas as Record<string, MockRecordSchema>)[collectionName] =
-        config.schema;
-    }
-
     if (!this.collections.has(collectionName)) {
-      const schema =
-        config?.schema ||
-        (this.schemas as Record<string, MockRecordSchema>)[collectionName];
+      const schema = this.schemas[collectionName];
 
       if (!schema) {
         throw new Error(
-          `Schema for collection "${collectionName}" not found. Provide it in config or global schemas.`
+          `Schema for collection "${collectionName}" not found. Define it in database schemas.`
         );
       }
 
-      const collection = new MockCollection(schema);
+      const collection = new MockCollection(schema as CollectionSchema);
       const persistConfig: MockPersistConfig<any> = {
         name: collectionName,
         collection,
-        options: config?.options || this.config.persister,
+        options: options || this.config.persister,
       };
 
       const persist = new MockPersist(persistConfig);
@@ -136,6 +144,11 @@ export class MockStorage<Schemas extends CollectionSchemas> {
 
       this.collections.set(collectionName, collection);
       this.persisters.set(collectionName, persist);
+    }
+
+    // Initialize relations after all collections are created
+    if (this.collections.size > 0 && !this.relationsInitialized) {
+      this.initializeRelations();
     }
 
     return this.collections.get(collectionName)!;
@@ -250,5 +263,67 @@ export class MockStorage<Schemas extends CollectionSchemas> {
       meta: healthMeta,
       count,
     };
+  }
+
+  /**
+   * Defines a relation between two collections
+   * @template S1 - Source collection schema
+   * @template S2 - Target collection schema
+   * @param config - Relation configuration
+   * @returns Relation instance
+   */
+  public defineRelation<
+    S1 extends keyof Schemas,
+    S2 extends keyof Schemas
+  >(
+    config: Omit<RelationConfig<any, any>, "sourceCollection" | "targetCollection"> & {
+      sourceCollection: S1;
+      targetCollection: S2;
+    }
+  ): Relation<any, any> {
+    const sourceCol = this.collections.get(config.sourceCollection as string);
+    const targetCol = this.collections.get(config.targetCollection as string);
+
+    if (!sourceCol) {
+      throw new Error(`Source collection "${String(config.sourceCollection)}" not found`);
+    }
+    if (!targetCol) {
+      throw new Error(`Target collection "${String(config.targetCollection)}" not found`);
+    }
+
+    return this.relationManager.defineRelation({
+      ...config,
+      sourceCollection: sourceCol,
+      targetCollection: targetCol,
+    });
+  }
+
+  /**
+   * Gets a relation by name
+   * @param name - Relation name
+   */
+  public getRelation(name: string): Relation<any, any> | undefined {
+    return this.relationManager.getRelation(name);
+  }
+
+  /**
+   * Lists all defined relations
+   */
+  public listRelations(): string[] {
+    return this.relationManager.listRelations();
+  }
+
+  /**
+   * Validates referential integrity of all relations
+   */
+  public async validateRelations() {
+    return this.relationManager.validateAllIntegrity();
+  }
+
+  /**
+   * Gets metadata for all relations
+   */
+  public getRelationMetadata() {
+    return this.relationManager.getAllMetadata();
   }
 }

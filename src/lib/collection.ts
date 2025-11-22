@@ -6,7 +6,12 @@ import {
   InferSchemaType,
 } from "./record";
 import { BTree } from "./btree";
-import { IndexManager, IndexConfig } from "./index";
+import { IndexManager, IndexConfig, TypeSafeIndexConfig } from "./index";
+import {
+  CollectionSchema,
+  toSimpleSchema,
+  extractIndexConfigs,
+} from "./schema";
 
 /**
  * A filter function type that determines whether a record should be included.
@@ -36,15 +41,43 @@ export class MockCollection<S extends MockRecordSchema> {
   private indexManager: IndexManager<S>;
   private schema: S;
   private onModifyCallbacks: (() => void)[] = [];
+  private autoIndexesCreated: boolean = false;
 
   /**
    * Creates a new `MockCollection` instance.
-   * @param schema - The schema defining the structure and types of records in the collection.
+   * @param schema - The collection schema with field definitions
    */
-  constructor(schema: S) {
-    this.schema = schema;
+  constructor(schema: S | CollectionSchema) {
+    // Convert collection schema to simple format for internal use
+    this.schema = toSimpleSchema(schema as CollectionSchema) as S;
     this.btree = new BTree<string, MockRecord<S>>(64);
     this.indexManager = new IndexManager<S>();
+    
+    // Auto-create indexes from schema
+    this.initializeAutoIndexes(schema as CollectionSchema);
+  }
+
+  /**
+   * Initializes indexes defined in the schema
+   */
+  private async initializeAutoIndexes(schema: CollectionSchema): Promise<void> {
+    if (this.autoIndexesCreated) return;
+    
+    const indexConfigs = extractIndexConfigs(schema);
+    
+    for (const config of indexConfigs) {
+      try {
+        await this.createIndex({
+          name: config.name,
+          field: config.field as any,
+          unique: config.unique,
+        });
+      } catch (error) {
+        console.warn(`Failed to auto-create index for ${config.field}:`, error);
+      }
+    }
+    
+    this.autoIndexesCreated = true;
   }
 
   /**
@@ -255,13 +288,16 @@ export class MockCollection<S extends MockRecordSchema> {
 
   /**
    * Creates an index on a specific field for fast lookups
-   * @param config - Index configuration
+   * @param config - Type-safe index configuration
    */
-  public async createIndex(config: IndexConfig): Promise<void> {
+  public async createIndex(config: TypeSafeIndexConfig<S>): Promise<void> {
     const release = await this.mutex.acquire();
 
     try {
-      const index = this.indexManager.createIndex(config);
+      const index = this.indexManager.createIndex({
+        ...config,
+        field: config.field as string,
+      });
       
       // Build index from existing records
       const records = this.btree.toArray().map((entry) => entry.value.view());
@@ -309,17 +345,17 @@ export class MockCollection<S extends MockRecordSchema> {
   /**
    * Searches for a record by indexed field value
    * O(log n) lookup when index exists, O(n) fallback otherwise
-   * @param field - Field name to search
+   * @param field - Field name to search (type-safe)
    * @param value - Value to search for
    */
-  public async findByField(
-    field: string,
-    value: any
+  public async findByField<K extends keyof InferSchemaType<S>>(
+    field: K,
+    value: InferSchemaType<S>[K]
   ): Promise<MockView<InferSchemaType<S>> | null> {
     const release = await this.mutex.acquire();
 
     try {
-      const index = this.indexManager.getIndexByField(field);
+      const index = this.indexManager.getIndexByField(field as string);
       
       if (index) {
         // Use index for O(log n) lookup
@@ -341,23 +377,23 @@ export class MockCollection<S extends MockRecordSchema> {
   /**
    * Finds all records with field value in a range
    * Requires an index on the field
-   * @param field - Field name
+   * @param field - Field name (type-safe)
    * @param min - Minimum value (inclusive)
    * @param max - Maximum value (inclusive)
    */
-  public async findByRange(
-    field: string,
-    min: any,
-    max: any
+  public async findByRange<K extends keyof InferSchemaType<S>>(
+    field: K,
+    min: InferSchemaType<S>[K],
+    max: InferSchemaType<S>[K]
   ): Promise<MockView<InferSchemaType<S>>[]> {
     const release = await this.mutex.acquire();
 
     try {
-      const index = this.indexManager.getIndexByField(field);
+      const index = this.indexManager.getIndexByField(field as string);
       
       if (!index) {
         throw new Error(
-          `No index found on field "${field}". Create an index first for range queries.`
+          `No index found on field "${String(field)}". Create an index first for range queries.`
         );
       }
 

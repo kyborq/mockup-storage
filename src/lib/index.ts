@@ -11,13 +11,28 @@ import { MockRecordSchema, InferSchemaType, MockView } from "./record";
 export type IndexType = "btree" | "hash";
 
 /**
- * Index configuration
+ * Index configuration (generic version for internal use)
  */
 export interface IndexConfig {
   /** Name of the index */
   name: string;
   /** Field to index */
   field: string;
+  /** Type of index (default: btree) */
+  type?: IndexType;
+  /** Whether index is unique */
+  unique?: boolean;
+}
+
+/**
+ * Type-safe index configuration
+ * @template S - Schema type
+ */
+export type TypeSafeIndexConfig<S extends MockRecordSchema> = {
+  /** Name of the index */
+  name: string;
+  /** Field to index - must be a field from the schema */
+  field: keyof InferSchemaType<S>;
   /** Type of index (default: btree) */
   type?: IndexType;
   /** Whether index is unique */
