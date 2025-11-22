@@ -20,7 +20,7 @@ const schemas: DatabaseSchemas = {
 
 const main = async () => {
   const storage = new MockStorage(schemas, {
-    persister: { persist: true, format: "binary" },
+    persister: { persist: true },
   });
 
   const books = await storage.collection("books");

@@ -4,7 +4,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { MOCK_PERSIST_DIRECTORY } from "../constants";
+import { DEFAULT_DB_PATH } from "../constants";
 import { BinaryStorage } from "./binary-storage";
 import { MockRecordSchema } from "./record";
 
@@ -40,7 +40,7 @@ export class Migration {
       errors: [],
     };
 
-    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
+    const dirPath = path.join(process.cwd(), DEFAULT_DB_PATH);
 
     try {
       await fs.access(dirPath);
@@ -127,7 +127,7 @@ export class Migration {
       errors: [],
     };
 
-    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
+    const dirPath = path.join(process.cwd(), DEFAULT_DB_PATH);
 
     try {
       await fs.access(dirPath);
@@ -217,7 +217,7 @@ export class Migration {
     totalBinarySize: number;
     potentialSavings: number;
   }> {
-    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
+    const dirPath = path.join(process.cwd(), DEFAULT_DB_PATH);
     const jsonCollections: Array<{
       name: string;
       size: number;
@@ -303,7 +303,7 @@ export class Migration {
       error?: string;
     }>;
   }> {
-    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
+    const dirPath = path.join(process.cwd(), DEFAULT_DB_PATH);
     const collections: Array<{
       name: string;
       format: "json" | "binary";

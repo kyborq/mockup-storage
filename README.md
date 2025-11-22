@@ -95,9 +95,17 @@ async function main() {
 main();
 ```
 
-### Persistent Storage (Binary Format)
+### Persistent Storage
 
-Enable persistence to automatically save your collections to efficient binary files (`.mdb`) under the `.mock` directory. Binary format is ~40% smaller and faster than JSON.
+All collections stored in ONE binary database file (like SQLite). Binary format is ~40% smaller and faster than JSON.
+
+```typescript
+const storage = new MockStorage(schemas, {
+  persister: { persist: true },
+});
+
+// All data saved to: ./data/database.mdb
+```
 
 ```typescript
 import { MockStorage } from "mockup-storage";
@@ -117,18 +125,16 @@ const schemas: Schemas = {
 };
 
 async function persistentExample() {
-  // Configure storage with binary persistence enabled globally
   const storage = new MockStorage(schemas, {
-    persister: { persist: true, format: "binary" }, // Uses efficient binary format
+    persister: { persist: true },
   });
 
-  // Get the persistent "users" collection
   const users = await storage.collection("users");
 
-  // Data will be saved to `.mock/users-collection.mdb` (binary format)
   await users.add({ name: "Charlie", age: 25 });
 
-  // On subsequent runs, persisted data will be auto‑loaded
+  await storage.commitAll();
+
   const allUsers = await users.all();
   console.log(allUsers);
 }
@@ -136,15 +142,30 @@ async function persistentExample() {
 persistentExample();
 ```
 
+### Custom Database Path
+
+```typescript
+const storage = new MockStorage(schemas, {
+  persister: { 
+    persist: true,
+    filepath: "./myapp"
+  },
+});
+
+// All collections saved to: ./myapp.mdb
+```
+```
+
 ---
 
 ## Features
 
 ### Core Engine
+- **Single Database File**: All collections stored in ONE .mdb file (SQLite-like architecture)
 - **B-Tree Storage**: O(log n) lookups using production-grade B-Tree implementation
 - **Indexing System**: Create indexes on any field for lightning-fast queries
-- **Binary Storage**: Efficient binary format (`.mdb`) similar to SQLite, ~40% smaller than JSON
-- **Automatic Migration**: Seamless migration from legacy JSON format to binary
+- **Binary Format**: Efficient binary storage, ~40% smaller than JSON
+- **Declarative Schema**: Define indexes, constraints, and relations directly in schema
 
 ### Performance
 - **Asynchronous API**: All operations return Promises for non‑blocking execution
@@ -361,12 +382,24 @@ const youngUsers = await users.findByRange("age", 18, 30);
 
 ## Persistence & Storage Formats
 
-### Binary Format (Default & Recommended)
+### Binary Format
 
-Data is stored in efficient binary files (`.mdb`) under the `.mock` directory:
+All collections stored in ONE `.mdb` file:
 
 ```
-.mock/{collection-name}-collection.mdb
+./data/database.mdb  (contains ALL collections)
+```
+
+Custom path:
+
+```typescript
+const storage = new MockStorage(schemas, {
+  persister: { 
+    persist: true,
+    filepath: "./myapp"
+  },
+});
+// Saves to: ./myapp.mdb
 ```
 
 Binary format provides:

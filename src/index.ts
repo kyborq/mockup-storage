@@ -7,9 +7,16 @@ import {
   MockPersistOptions,
 } from "./lib/persist";
 import { BTree } from "./lib/btree";
-import { Index, IndexManager, IndexConfig, IndexStats, TypeSafeIndexConfig } from "./lib/index";
+import {
+  Index,
+  IndexManager,
+  IndexConfig,
+  IndexStats,
+  TypeSafeIndexConfig,
+} from "./lib/index";
 import { BinaryStorage } from "./lib/binary-storage";
 import { Migration } from "./lib/migration";
+import { DatabaseFile, CollectionData } from "./lib/database-file";
 import {
   Relation,
   RelationManager,
@@ -36,28 +43,32 @@ export {
   MockFilter,
   MockRecord,
   MockView,
-  
+
   // Persistence
   MockPersist,
   MockPersistConfig,
   MockPersistOptions,
-  
+
   // Data structures
   BTree,
-  
+
   // Indexing
   Index,
   IndexManager,
   IndexConfig,
   TypeSafeIndexConfig,
   IndexStats,
-  
+
   // Binary storage
   BinaryStorage,
-  
+
+  // Database file (single file mode)
+  DatabaseFile,
+  CollectionData,
+
   // Migration utilities
   Migration,
-  
+
   // Relations and JOINs
   Relation,
   RelationManager,
@@ -65,7 +76,7 @@ export {
   RelationType,
   JoinType,
   JoinResult,
-  
+
   // Schema System
   DatabaseSchemas,
   CollectionSchema,
@@ -75,7 +86,7 @@ export {
   extractIndexConfigs,
   extractRelationConfigs,
   InferRecordType,
-  
+
   // Storage Config
   MockStorageConfig,
 };

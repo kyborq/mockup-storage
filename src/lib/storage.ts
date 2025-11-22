@@ -3,10 +3,11 @@ import fs from "fs/promises";
 
 import { MockCollection } from "./collection";
 import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
-import { MOCK_PERSIST_DIRECTORY } from "../constants";
+import { DEFAULT_DB_PATH } from "../constants";
 import { MockRecordSchema } from "./record";
 import { RelationManager, RelationConfig, Relation } from "./relations";
 import { DatabaseSchemas, CollectionSchema, toSimpleSchema, extractRelationConfigs } from "./schema";
+import { DatabaseFile } from "./database-file";
 
 /**
  * Configuration options for mock storage initialization
@@ -30,6 +31,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   private schemas: Schemas;
   private relationManager: RelationManager;
   private relationsInitialized: boolean = false;
+  private databaseFile: DatabaseFile;
 
   /**
    * Creates a new MockStorage instance
@@ -42,6 +44,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     this.persisters = new Map();
     this.config = config;
     this.relationManager = new RelationManager();
+    this.databaseFile = new DatabaseFile(config.persister?.filepath);
   }
 
   /**
@@ -74,40 +77,20 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     this.relationsInitialized = true;
   }
 
-  /**
-   * Initializes storage by scanning the persistence directory and loading existing collections
-   * @throws {Error} If filesystem access fails
-   */
   public async initialize(): Promise<void> {
-    const dirPath = path.join(process.cwd(), MOCK_PERSIST_DIRECTORY);
-
     try {
-      await fs.access(dirPath);
-      const files = await fs.readdir(dirPath);
-
-      const collectionFiles = files.filter((file) =>
-        file.endsWith("-collection.json")
-      );
-
-      for (const file of collectionFiles) {
-        const collectionName = file.replace("-collection.json", "");
-        const filePath = path.join(dirPath, file);
-
-        try {
-          const data = await fs.readFile(filePath, "utf-8");
-          const { schema } = JSON.parse(data);
-
-          (this.schemas as any)[collectionName] = schema;
-
-          await this.collection(collectionName as any, {
-            persist: true,
-          });
-        } catch (error) {
-          console.error(`Error loading collection ${collectionName}:`, error);
+      await this.databaseFile.load();
+      
+      const collectionNames = this.databaseFile.listCollections();
+      for (const name of collectionNames) {
+        const data = this.databaseFile.getCollection(name);
+        if (data) {
+          (this.schemas as any)[name] = data.schema;
+          await this.collection(name as any, { persist: true });
         }
       }
     } catch (error) {
-      console.error("Error initializing storage:", error);
+      // Database file will be created on first write
     }
   }
 
@@ -180,13 +163,28 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     await persist.commit();
   }
 
-  /**
-   * Commits changes for all collections to persistent storage
-   */
   public async commitAll(): Promise<void> {
-    await Promise.all(
-      Array.from(this.persisters.values()).map((p) => p.commit())
-    );
+    for (const [name, collection] of this.collections.entries()) {
+      const schema = collection.getSchema();
+      const records = await collection.all();
+      const indexes = collection.listIndexes().map((idxName) => {
+        const stats = collection.getIndexStats().find((s) => s.name === idxName);
+        return {
+          name: idxName,
+          field: stats?.field || "",
+          unique: stats?.unique || false,
+        };
+      });
+
+      this.databaseFile.setCollection({
+        name,
+        schema,
+        records,
+        indexes,
+      });
+    }
+
+    await this.databaseFile.save();
   }
 
   /**
@@ -206,12 +204,6 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     return this.collections.has(name);
   }
 
-  /**
-   * Gets health metadata for all collections including persistence information
-   * @returns Object with:
-   * - collections: Array of health info objects
-   * - totalSize: Total size of all persisted data in bytes
-   */
   public async getHealth(): Promise<{
     collections: Array<{
       collection: string;
@@ -219,28 +211,24 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       count: number;
     }>;
     totalSize: number;
+    databasePath: string;
   }> {
+    const dbStats = await this.databaseFile.getStats();
     const healthInfo = await Promise.all(
       Array.from(this.collections.entries()).map(async ([name, collection]) => {
-        const persister = this.persisters.get(name);
-        const healthMeta = persister ? await persister.health() : {};
         const count = (await collection.all()).length;
-
         return {
           collection: name,
-          meta: healthMeta,
+          meta: {},
           count,
         };
       })
     );
 
-    const totalSize = healthInfo.reduce((sum, info) => {
-      return sum + (info.meta.size || 0);
-    }, 0);
-
     return {
       collections: healthInfo,
-      totalSize,
+      totalSize: dbStats.size || 0,
+      databasePath: this.databaseFile.getFilePath(),
     };
   }
 
