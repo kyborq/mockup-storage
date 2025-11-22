@@ -8,6 +8,7 @@ import { BinaryStorage } from "./binary-storage";
 export interface MockPersistOptions {
   persist: boolean;
   filepath?: string;
+  autoCommit?: boolean;
 }
 
 /**

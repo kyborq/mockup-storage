@@ -97,14 +97,18 @@ main();
 
 ### Persistent Storage
 
-All collections stored in ONE binary database file (like SQLite). Binary format is ~40% smaller and faster than JSON.
+All collections stored in ONE binary database file (like SQLite). **Auto-initialize and auto-commit enabled by default** - data loads automatically and changes are saved within 100ms.
 
 ```typescript
 const storage = new MockStorage(schemas, {
   persister: { persist: true },
 });
 
-// All data saved to: ./data/database.mdb
+// Automatically loads existing data from database.mdb!
+const users = await storage.collection("users");
+
+// Add data - automatically saved!
+await users.add({ name: "Alice", age: 28 });
 ```
 
 ```typescript
@@ -129,11 +133,11 @@ async function persistentExample() {
     persister: { persist: true },
   });
 
+  // Automatically loads existing data!
   const users = await storage.collection("users");
 
+  // Add data - auto-saved within 100ms!
   await users.add({ name: "Charlie", age: 25 });
-
-  await storage.commitAll();
 
   const allUsers = await users.all();
   console.log(allUsers);
@@ -142,17 +146,23 @@ async function persistentExample() {
 persistentExample();
 ```
 
-### Custom Database Path
+### Configuration
 
 ```typescript
 const storage = new MockStorage(schemas, {
   persister: { 
     persist: true,
-    filepath: "./myapp"
+    autoCommit: true,  // Auto-save (default: true)
+    filepath: "./myapp"  // Custom path (default: "./data/database")
   },
 });
 
-// All collections saved to: ./myapp.mdb
+// Disable auto-commit (manual save)
+const storage2 = new MockStorage(schemas, {
+  persister: { persist: true, autoCommit: false },
+});
+
+await storage2.commitAll();  // Manual save
 ```
 ```
 

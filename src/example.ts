@@ -23,6 +23,7 @@ const main = async () => {
     persister: { persist: true },
   });
 
+  // Auto-loads existing data from database.mdb
   const books = await storage.collection("books");
 
   // Add some books
@@ -42,6 +43,14 @@ const main = async () => {
   // Fast indexed lookup
   const msBooks = await books.findByField("author", "Microsoft");
   console.log("Microsoft books:", msBooks);
+
+  // Wait for auto-commit (enabled by default)
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const health = await storage.getHealth();
+  console.log(`\n📊 Database: ${health.databasePath}`);
+  console.log(`📦 Size: ${health.totalSize} bytes`);
+  console.log(`📚 Collections: ${health.collections.length}`);
 };
 
 main();

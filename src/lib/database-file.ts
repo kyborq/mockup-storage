@@ -65,7 +65,6 @@ export class DatabaseFile {
       const buffer = await fs.readFile(this.filepath);
       this.collections = this.deserialize(buffer);
     } catch (error) {
-      // File doesn't exist yet - that's okay
       this.collections = new Map();
     }
   }
@@ -127,16 +126,12 @@ export class DatabaseFile {
     // Calculate metadata size
     for (const [name] of this.collections) {
       const nameBuffer = Buffer.from(name, "utf8");
-      currentOffset += 4 + nameBuffer.length + 8 + 8; // name_len + name + offset + length
+      currentOffset += 4 + nameBuffer.length + 8 + 8;
     }
 
     // Serialize each collection
     for (const [name, data] of this.collections) {
-      const collectionBuffer = BinaryStorage.serialize(
-        data.schema,
-        data.records,
-        data.indexes
-      );
+      const collectionBuffer = this.serializeCollection(data);
 
       collectionMetadata.push({
         name: Buffer.from(name, "utf8"),
@@ -232,22 +227,63 @@ export class DatabaseFile {
         meta.dataOffset + meta.dataLength
       );
 
-      const { schema, records, indexes } =
-        BinaryStorage.deserialize(collectionBuffer);
+      const collectionData = this.deserializeCollection(collectionBuffer);
 
       collections.set(meta.name, {
         name: meta.name,
-        schema,
-        records,
-        indexes: indexes.map((idx) => ({
-          name: idx.name,
-          field: idx.field,
-          unique: idx.unique || false,
-        })),
+        ...collectionData,
       });
     }
 
     return collections;
+  }
+
+  /**
+   * Serializes a single collection to binary
+   */
+  private serializeCollection(data: CollectionData): Buffer {
+    const schemaStr = JSON.stringify(data.schema);
+    const recordsStr = JSON.stringify(data.records);
+    const indexesStr = JSON.stringify(data.indexes);
+
+    const schemaBuffer = Buffer.from(schemaStr, "utf8");
+    const recordsBuffer = Buffer.from(recordsStr, "utf8");
+    const indexesBuffer = Buffer.from(indexesStr, "utf8");
+
+    const header = Buffer.alloc(12);
+    header.writeUInt32LE(schemaBuffer.length, 0);
+    header.writeUInt32LE(recordsBuffer.length, 4);
+    header.writeUInt32LE(indexesBuffer.length, 8);
+
+    return Buffer.concat([header, schemaBuffer, recordsBuffer, indexesBuffer]);
+  }
+
+  /**
+   * Deserializes a single collection from binary
+   */
+  private deserializeCollection(buffer: Buffer): Omit<CollectionData, "name"> {
+    let offset = 0;
+
+    const schemaLen = buffer.readUInt32LE(offset);
+    offset += 4;
+    const recordsLen = buffer.readUInt32LE(offset);
+    offset += 4;
+    const indexesLen = buffer.readUInt32LE(offset);
+    offset += 4;
+
+    const schemaStr = buffer.toString("utf8", offset, offset + schemaLen);
+    offset += schemaLen;
+
+    const recordsStr = buffer.toString("utf8", offset, offset + recordsLen);
+    offset += recordsLen;
+
+    const indexesStr = buffer.toString("utf8", offset, offset + indexesLen);
+
+    return {
+      schema: JSON.parse(schemaStr),
+      records: JSON.parse(recordsStr),
+      indexes: JSON.parse(indexesStr),
+    };
   }
 
   /**

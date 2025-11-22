@@ -32,6 +32,10 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   private relationManager: RelationManager;
   private relationsInitialized: boolean = false;
   private databaseFile: DatabaseFile;
+  private autoCommitTimer?: NodeJS.Timeout;
+  private pendingCommit: boolean = false;
+  private isInitializing: boolean = false;
+  private initialized: boolean = false;
 
   /**
    * Creates a new MockStorage instance
@@ -42,9 +46,15 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     this.schemas = (schemas || {}) as Schemas;
     this.collections = new Map();
     this.persisters = new Map();
-    this.config = config;
+    this.config = {
+      persister: {
+        persist: false,
+        autoCommit: true,
+        ...config.persister,
+      },
+    };
     this.relationManager = new RelationManager();
-    this.databaseFile = new DatabaseFile(config.persister?.filepath);
+    this.databaseFile = new DatabaseFile(this.config.persister?.filepath);
   }
 
   /**
@@ -78,19 +88,46 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   }
 
   public async initialize(): Promise<void> {
+    if (this.initialized) return;
+    
+    this.initialized = true;
+    this.isInitializing = true;
     try {
       await this.databaseFile.load();
       
       const collectionNames = this.databaseFile.listCollections();
+      
       for (const name of collectionNames) {
         const data = this.databaseFile.getCollection(name);
         if (data) {
-          (this.schemas as any)[name] = data.schema;
-          await this.collection(name as any, { persist: true });
+          // Use existing schema if defined, otherwise use stored schema
+          if (!this.schemas[name as keyof Schemas]) {
+            (this.schemas as any)[name] = data.schema;
+          }
+          
+          const collection = await this.collection(name as any, { persist: true });
+          
+          // Load data into collection
+          await collection.init(data.records);
+          
+          // Restore indexes
+          for (const indexConfig of data.indexes) {
+            try {
+              await collection.createIndex({
+                name: indexConfig.name,
+                field: indexConfig.field as any,
+                unique: indexConfig.unique,
+              });
+            } catch (error) {
+              // Index might already exist from schema auto-creation
+            }
+          }
         }
       }
     } catch (error) {
       // Database file will be created on first write
+    } finally {
+      this.isInitializing = false;
     }
   }
 
@@ -104,6 +141,11 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     name: Name,
     options?: MockPersistOptions
   ): Promise<MockCollection<any>> {
+    // Auto-initialize on first collection access
+    if (!this.initialized && !this.isInitializing) {
+      await this.initialize();
+    }
+    
     const collectionName = name as string;
 
     if (!this.collections.has(collectionName)) {
@@ -123,10 +165,21 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       };
 
       const persist = new MockPersist(persistConfig);
-      await persist.pull();
+      
+      // Only pull if not initializing (to avoid overwriting loaded data)
+      if (!this.isInitializing) {
+        await persist.pull();
+      }
 
       this.collections.set(collectionName, collection);
       this.persisters.set(collectionName, persist);
+
+      // Setup auto-commit if enabled
+      if (this.config.persister?.autoCommit !== false) {
+        collection.onModify(() => {
+          this.scheduleAutoCommit();
+        });
+      }
     }
 
     // Initialize relations after all collections are created
@@ -161,6 +214,27 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     const persist = this.persisters.get(name);
     if (!persist) throw new Error(`Collection ${name} not found`);
     await persist.commit();
+  }
+
+  private scheduleAutoCommit(): void {
+    if (this.pendingCommit) return;
+    
+    this.pendingCommit = true;
+    
+    if (this.autoCommitTimer) {
+      clearTimeout(this.autoCommitTimer);
+    }
+    
+    this.autoCommitTimer = setTimeout(() => {
+      this.commitAll()
+        .then(() => {
+          this.pendingCommit = false;
+        })
+        .catch((error) => {
+          console.error("Auto-commit failed:", error);
+          this.pendingCommit = false;
+        });
+    }, 100);
   }
 
   public async commitAll(): Promise<void> {
