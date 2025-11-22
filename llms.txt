@@ -1,0 +1,351 @@
+# Mockup Storage - LLMs Context
+
+> Production-ready embedded database engine for Node.js/TypeScript
+> Version: 3.2.3
+> Repository: github.com/kyborq/mockup-storage
+
+## Project Overview
+
+Mockup Storage is an embedded database engine inspired by SQLite and MongoDB. It provides:
+- Single-file database architecture (.mdb format)
+- B-Tree indexing for O(log n) performance
+- Binary storage format (40% smaller than JSON)
+- Relational capabilities (JOINs, foreign keys)
+- Full TypeScript support with schema inference
+- Auto-commit persistence (changes saved within 100ms)
+- Thread-safe operations using async-mutex
+
+## Architecture
+
+### Core Components
+
+1. **MockStorage** (src/lib/storage.ts)
+   - Central storage manager
+   - Manages collections and persistence
+   - Handles relations between collections
+   - Auto-initializes from database file
+
+2. **MockCollection** (src/lib/collection.ts)
+   - In-memory collection with CRUD operations
+   - Uses B-Tree for record storage
+   - IndexManager for fast lookups
+   - Schema validation
+   - Thread-safe with mutex locks
+
+3. **BTree** (src/lib/btree.ts)
+   - Production-grade B-Tree implementation
+   - Provides O(log n) operations
+   - Used for both records and indexes
+   - Configurable branching factor (default: 64)
+
+4. **IndexManager** (src/lib/index.ts)
+   - Manages multiple indexes per collection
+   - Supports unique constraints
+   - Range queries
+   - Automatic query optimization
+
+5. **DatabaseFile** (src/lib/database-file.ts)
+   - Single-file database format
+   - Stores all collections in one .mdb file
+   - Binary serialization
+   - Atomic writes
+
+6. **Schema System** (src/lib/schema.ts)
+   - Declarative schema definitions
+   - Auto-creates indexes from schema
+   - Type inference for TypeScript
+   - Field definitions with metadata
+
+7. **Relations** (src/lib/relations.ts)
+   - SQL-like foreign keys
+   - JOIN operations (INNER, LEFT, RIGHT)
+   - Cascade delete support
+   - Referential integrity validation
+
+8. **BinaryStorage** (src/lib/binary-storage.ts)
+   - Binary serialization format
+   - 40% smaller than JSON
+   - Type-safe encoding/decoding
+
+9. **Migration** (src/lib/migration.ts)
+   - Convert between JSON and binary formats
+   - Analyze storage usage
+   - Validate collection files
+
+### File Structure
+
+```
+src/
+├── index.ts              # Main exports
+├── constants.ts          # Configuration constants
+├── example.ts            # Usage example
+├── lib/
+│   ├── storage.ts        # MockStorage class
+│   ├── collection.ts     # MockCollection class
+│   ├── btree.ts          # B-Tree implementation
+│   ├── index.ts          # Indexing system
+│   ├── database-file.ts  # Single-file storage
+│   ├── schema.ts         # Schema system
+│   ├── relations.ts      # Relations & JOINs
+│   ├── binary-storage.ts # Binary format
+│   ├── migration.ts      # Migration tools
+│   ├── persist.ts        # Persistence layer
+│   └── record.ts         # Record types
+└── utils/
+    └── uuid.ts           # UUID generation
+```
+
+## Key Concepts
+
+### 1. Schema Definition
+
+```typescript
+const schemas: DatabaseSchemas = {
+  users: {
+    name: { type: "string", required: true },
+    email: { type: "string", index: true, unique: true },
+    age: { type: "number", index: true },
+  },
+};
+```
+
+- Field types: "string" | "number" | "boolean" | "datetime"
+- Metadata: index, unique, required, default, relation
+- Indexes auto-created on collection initialization
+
+### 2. Persistence Model
+
+- **Single database file**: All collections in one .mdb file (like SQLite)
+- **Auto-commit**: Changes saved automatically within 100ms (default)
+- **Auto-load**: Existing data loaded on first collection access
+- **Thread-safe**: Mutex locks prevent race conditions
+
+Default path: `./data/database.mdb`
+
+### 3. Indexing Strategy
+
+- Indexes use separate B-Trees
+- O(log n) lookups vs O(n) full scans
+- Unique constraints enforced
+- Range queries supported
+- Query optimizer chooses best index
+
+### 4. Relations
+
+- One-to-one, one-to-many, many-to-one, many-to-many
+- Foreign keys with cascade/set-null/restrict
+- JOIN operations (INNER, LEFT, RIGHT)
+- Referential integrity validation
+
+### 5. Type Safety
+
+- Full TypeScript inference
+- Schema types inferred automatically
+- Autocomplete for field names
+- Runtime validation
+
+## Common Usage Patterns
+
+### Basic CRUD
+
+```typescript
+const storage = new MockStorage(schemas, { persister: { persist: true } });
+const users = await storage.collection("users");
+
+// Create
+await users.add({ name: "Alice", email: "alice@ex.com", age: 28 });
+
+// Read
+const all = await users.all();
+const alice = await users.findByField("email", "alice@ex.com");
+const adults = await users.findByRange("age", 18, 65);
+
+// Update
+await users.update(id, { age: 29 });
+
+// Delete
+await users.remove(id);
+```
+
+### With Relations
+
+```typescript
+const relation = storage.defineRelation({
+  name: "user_posts",
+  sourceCollection: "posts",
+  targetCollection: "users",
+  sourceField: "userId",
+  targetField: "id",
+  type: "one-to-many",
+  onDelete: "cascade",
+});
+
+const postsWithAuthors = await relation.innerJoin();
+```
+
+### Manual Persistence
+
+```typescript
+const storage = new MockStorage(schemas, {
+  persister: { persist: true, autoCommit: false },
+});
+
+await users.add({ name: "Bob" });
+await storage.commitAll(); // Manual save
+```
+
+## Performance Characteristics
+
+- **Get by ID**: O(log n) with B-Tree
+- **Indexed lookup**: O(log n)
+- **Range query**: O(log n + k) where k = results
+- **Full scan**: O(n)
+- **Insert**: O(log n)
+- **Delete**: O(log n)
+
+## Dependencies
+
+- **async-mutex**: Thread-safe operations
+- **TypeScript**: Full type safety
+- **Node.js**: Built-in fs/path modules
+
+## Use Cases
+
+✅ **Best for:**
+- Serverless functions
+- Testing/mocking
+- Rapid prototyping
+- Desktop apps (Electron/Tauri)
+- CLI tools
+- Edge computing
+- Embedded systems
+
+⚠️ **Not ideal for:**
+- Distributed systems
+- Multi-GB datasets
+- Heavy concurrent writes (1000+/sec)
+- Real-time replication
+
+## Development
+
+```bash
+npm install          # Install dependencies
+npm run build        # Compile TypeScript
+npm run dev          # Run example
+```
+
+## Key Files for AI Assistance
+
+When helping with:
+- **Schema issues**: Check src/lib/schema.ts
+- **CRUD operations**: Check src/lib/collection.ts
+- **Persistence issues**: Check src/lib/storage.ts, src/lib/database-file.ts
+- **Index problems**: Check src/lib/index.ts, src/lib/btree.ts
+- **Relations**: Check src/lib/relations.ts
+- **Type errors**: Check src/lib/record.ts, src/lib/schema.ts
+
+## Common Tasks
+
+### Add a new collection
+```typescript
+// 1. Define in schema
+const schemas: DatabaseSchemas = {
+  newCollection: {
+    field: { type: "string" },
+  },
+};
+
+// 2. Use it
+const col = await storage.collection("newCollection");
+```
+
+### Create an index
+```typescript
+// Declarative (recommended)
+const schemas = {
+  users: {
+    email: { type: "string", index: true, unique: true },
+  },
+};
+
+// Programmatic
+await users.createIndex({ name: "email_idx", field: "email", unique: true });
+```
+
+### Define a relation
+```typescript
+const relation = storage.defineRelation({
+  name: "user_posts",
+  sourceCollection: "posts",
+  targetCollection: "users",
+  sourceField: "userId",
+  targetField: "id",
+  type: "one-to-many",
+  onDelete: "cascade",
+});
+```
+
+### Change database path
+```typescript
+const storage = new MockStorage(schemas, {
+  persister: { persist: true, filepath: "./custom/path" },
+});
+// Creates: ./custom/path.mdb
+```
+
+## API Exports
+
+Main exports from `src/index.ts`:
+- MockStorage, MockCollection, MockRecord, MockView
+- MockPersist, MockPersistConfig, MockPersistOptions
+- BTree, Index, IndexManager, IndexConfig, IndexStats
+- BinaryStorage, DatabaseFile, Migration
+- Relation, RelationManager, RelationConfig
+- DatabaseSchemas, CollectionSchema, FieldDefinition
+
+## Testing Notes
+
+- No persistence needed for tests (use default config)
+- Each test should create fresh MockStorage instance
+- Collections are isolated per storage instance
+- Thread-safe for concurrent test execution
+
+## Migration Between Formats
+
+```typescript
+import { Migration } from "mockup-storage";
+
+// JSON → Binary
+const result = await Migration.jsonToBinary();
+
+// Analyze storage
+const analysis = await Migration.analyze();
+
+// Validate
+const validation = await Migration.validate();
+```
+
+## Common Pitfalls
+
+1. **Not awaiting collection()**: It's async due to auto-load
+2. **Missing indexes**: Use `index: true` for frequently queried fields
+3. **Forgetting required fields**: Set `required: true` in schema
+4. **Race conditions**: Don't disable mutex unless you know what you're doing
+5. **Large datasets**: Consider pagination for >100k records
+
+## Performance Tips
+
+1. Create indexes on frequently queried fields
+2. Use `findByField()` instead of `find()` for indexed fields
+3. Use range queries for numeric/date fields
+4. Batch operations when possible
+5. Disable auto-commit for bulk inserts
+
+## Author
+
+Konstantin Podyganov (k.podyganov@mail.ru)
+
+## License
+
+MIT
+
