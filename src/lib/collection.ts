@@ -5,6 +5,8 @@ import {
   MockRecordSchema,
   InferSchemaType,
 } from "./record";
+import { BTree } from "./btree";
+import { IndexManager, IndexConfig } from "./index";
 
 /**
  * A filter function type that determines whether a record should be included.
@@ -15,12 +17,23 @@ import {
 export type MockFilter<T> = (record: MockView<T>) => boolean;
 
 /**
+ * Query plan for optimized execution
+ */
+interface QueryPlan {
+  useIndex: boolean;
+  indexName?: string;
+  estimatedCost: number;
+}
+
+/**
  * A collection of mock records that supports insertion, retrieval, filtering, and deletion.
+ * Uses B-Tree for efficient storage and supports indexes for fast lookups.
  * @template S - The schema of the records.
  */
 export class MockCollection<S extends MockRecordSchema> {
   private mutex = new Mutex();
-  private records: Map<string, MockRecord<S>>;
+  private btree: BTree<string, MockRecord<S>>; // ID -> Record
+  private indexManager: IndexManager<S>;
   private schema: S;
   private onModifyCallbacks: (() => void)[] = [];
 
@@ -30,7 +43,8 @@ export class MockCollection<S extends MockRecordSchema> {
    */
   constructor(schema: S) {
     this.schema = schema;
-    this.records = new Map<string, MockRecord<S>>();
+    this.btree = new BTree<string, MockRecord<S>>(64);
+    this.indexManager = new IndexManager<S>();
   }
 
   /**
@@ -60,15 +74,20 @@ export class MockCollection<S extends MockRecordSchema> {
    * Validates records against the schema before adding them.
    * @param data - Array of record views to initialize.
    */
-  public async init(data: MockView<S>[]): Promise<void> {
+  public async init(data: MockView<InferSchemaType<S>>[]): Promise<void> {
     const release = await this.mutex.acquire();
     try {
-      this.records.clear();
+      this.btree.clear();
+      this.indexManager.clearAll();
+      
       data.forEach((view) => {
         const { id, ...rest } = view;
         const record = new MockRecord<S>(rest as any, this.schema);
-        this.records.set(id, record);
+        this.btree.insert(id, record);
       });
+      
+      // Rebuild indexes
+      this.indexManager.rebuildAll(data);
       this.triggerModify();
     } finally {
       release();
@@ -89,7 +108,13 @@ export class MockCollection<S extends MockRecordSchema> {
     try {
       const record = new MockRecord(value, this.schema);
       const view = record.view();
-      this.records.set(view.id, record);
+      
+      // Add to B-Tree
+      this.btree.insert(view.id, record);
+      
+      // Add to indexes
+      this.indexManager.addToIndexes(view);
+      
       this.triggerModify();
       return view;
     } finally {
@@ -105,7 +130,7 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      return Array.from(this.records.values()).map((record) => record.view());
+      return this.btree.toArray().map((entry) => entry.value.view());
     } finally {
       release();
     }
@@ -113,6 +138,7 @@ export class MockCollection<S extends MockRecordSchema> {
 
   /**
    * Finds records that match the given filter condition.
+   * Uses indexes when possible for better performance.
    * @param callback - Filter function to determine matches.
    * @returns Promise resolving to an array of matching records.
    */
@@ -122,8 +148,9 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      return Array.from(this.records.values())
-        .map((record) => record.view())
+      // Get all records from B-Tree and filter
+      return this.btree.toArray()
+        .map((entry) => entry.value.view())
         .filter(callback);
     } finally {
       release();
@@ -141,8 +168,9 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      for (const record of this.records.values()) {
-        const view = record.view();
+      const entries = this.btree.toArray();
+      for (const entry of entries) {
+        const view = entry.value.view();
         if (callback(view)) return view;
       }
       return null;
@@ -153,6 +181,7 @@ export class MockCollection<S extends MockRecordSchema> {
 
   /**
    * Retrieves a record by its ID.
+   * O(log n) lookup using B-Tree.
    * @param id - ID of the record to retrieve.
    * @returns Promise resolving to the found record or null.
    */
@@ -160,7 +189,7 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      const record = this.records.get(id);
+      const record = this.btree.search(id);
       return record ? record.view() : null;
     } finally {
       release();
@@ -176,10 +205,21 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      const result = this.records.delete(id);
+      // Get record before deletion for index removal
+      const record = this.btree.search(id);
+      if (!record) return false;
+      
+      const view = record.view();
+      
+      // Remove from B-Tree
+      const result = this.btree.delete(id);
+      
       if (result) {
+        // Remove from indexes
+        this.indexManager.removeFromIndexes(view);
         this.triggerModify();
       }
+      
       return result;
     } finally {
       release();
@@ -194,18 +234,171 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      const idsToRemove = Array.from(this.records.entries())
-        .filter(([_, record]) => !callback(record.view()))
-        .map(([id]) => id);
+      const entries = this.btree.toArray();
+      const idsToRemove = entries
+        .filter((entry) => !callback(entry.value.view()))
+        .map((entry) => entry.key);
 
-      idsToRemove.forEach((id) => this.records.delete(id));
+      for (const id of idsToRemove) {
+        const record = this.btree.search(id);
+        if (record) {
+          this.indexManager.removeFromIndexes(record.view());
+          this.btree.delete(id);
+        }
+      }
+      
       this.triggerModify();
     } finally {
       release();
     }
   }
 
+  /**
+   * Creates an index on a specific field for fast lookups
+   * @param config - Index configuration
+   */
+  public async createIndex(config: IndexConfig): Promise<void> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const index = this.indexManager.createIndex(config);
+      
+      // Build index from existing records
+      const records = this.btree.toArray().map((entry) => entry.value.view());
+      for (const record of records) {
+        try {
+          index.add(record);
+        } catch (error) {
+          // Skip records that violate constraints
+          console.warn(`Failed to index record ${record.id}:`, error);
+        }
+      }
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Drops an index
+   * @param name - Index name to drop
+   */
+  public async dropIndex(name: string): Promise<boolean> {
+    const release = await this.mutex.acquire();
+
+    try {
+      return this.indexManager.dropIndex(name);
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Lists all indexes in the collection
+   */
+  public listIndexes(): string[] {
+    return this.indexManager.listIndexes();
+  }
+
+  /**
+   * Gets statistics about indexes
+   */
+  public getIndexStats() {
+    return this.indexManager.getAllStats();
+  }
+
+  /**
+   * Searches for a record by indexed field value
+   * O(log n) lookup when index exists, O(n) fallback otherwise
+   * @param field - Field name to search
+   * @param value - Value to search for
+   */
+  public async findByField(
+    field: string,
+    value: any
+  ): Promise<MockView<InferSchemaType<S>> | null> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const index = this.indexManager.getIndexByField(field);
+      
+      if (index) {
+        // Use index for O(log n) lookup
+        const id = index.search(value);
+        if (id) {
+          const record = this.btree.search(id);
+          return record ? record.view() : null;
+        }
+        return null;
+      }
+
+      // Fallback to linear search
+      return this.first((record) => (record as any)[field] === value);
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Finds all records with field value in a range
+   * Requires an index on the field
+   * @param field - Field name
+   * @param min - Minimum value (inclusive)
+   * @param max - Maximum value (inclusive)
+   */
+  public async findByRange(
+    field: string,
+    min: any,
+    max: any
+  ): Promise<MockView<InferSchemaType<S>>[]> {
+    const release = await this.mutex.acquire();
+
+    try {
+      const index = this.indexManager.getIndexByField(field);
+      
+      if (!index) {
+        throw new Error(
+          `No index found on field "${field}". Create an index first for range queries.`
+        );
+      }
+
+      const ids = index.rangeSearch(min, max);
+      const results: MockView<InferSchemaType<S>>[] = [];
+
+      for (const id of ids) {
+        const record = this.btree.search(id);
+        if (record) {
+          results.push(record.view());
+        }
+      }
+
+      return results;
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Returns the collection schema
+   */
   public getSchema(): S {
     return this.schema;
+  }
+
+  /**
+   * Returns collection statistics
+   */
+  public async getStats() {
+    const release = await this.mutex.acquire();
+
+    try {
+      return {
+        recordCount: this.btree.length(),
+        indexCount: this.indexManager.listIndexes().length,
+        indexMemoryUsage: this.indexManager.getTotalMemoryUsage(),
+        indexes: this.indexManager.getAllStats(),
+      };
+    } finally {
+      release();
+    }
   }
 }
