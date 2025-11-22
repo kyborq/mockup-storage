@@ -1,0 +1,31 @@
+# Source files
+src/
+tsconfig.json
+.mock/
+
+# Development files
+node_modules/
+*.log
+.DS_Store
+
+# Examples (optional - uncomment if you don't want to include)
+# src/example.ts
+# src/example-advanced.ts
+
+# Git files
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.tgz
+
