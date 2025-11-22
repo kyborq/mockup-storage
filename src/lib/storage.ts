@@ -12,7 +12,7 @@ import { DatabaseFile } from "./database-file";
 /**
  * Typed wrapper for MockCollection with proper schema inference
  */
-export interface TypedMockCollection<Schema extends CollectionSchema> {
+export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
   add(value: InferRecordType<Schema>): Promise<MockView<InferRecordType<Schema> & { id: string }>>;
   all(): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
   find(filter: (record: MockView<InferRecordType<Schema> & { id: string }>) => boolean): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
@@ -41,6 +41,26 @@ export interface TypedMockCollection<Schema extends CollectionSchema> {
   init(data: Array<MockView<InferRecordType<Schema> & { id: string }>>): Promise<void>;
   onModify(callback: () => void): void;
   offModify(callback: () => void): void;
+  
+  // Join methods for relations
+  innerJoin<TargetSchema extends CollectionSchema<any>>(
+    targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
+    sourceField: keyof InferRecordType<Schema>,
+    targetField?: keyof InferRecordType<TargetSchema> | "id"
+  ): Promise<Array<MockView<InferRecordType<Schema> & { id: string }> & { joined: MockView<InferRecordType<TargetSchema> & { id: string }> }>>;
+  
+  leftJoin<TargetSchema extends CollectionSchema<any>>(
+    targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
+    sourceField: keyof InferRecordType<Schema>,
+    targetField?: keyof InferRecordType<TargetSchema> | "id"
+  ): Promise<Array<MockView<InferRecordType<Schema> & { id: string }> & { joined: MockView<InferRecordType<TargetSchema> & { id: string }> | null }>>;
+  
+  getRelated<TargetSchema extends CollectionSchema<any>>(
+    targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
+    sourceField: keyof InferRecordType<Schema>,
+    targetField: keyof InferRecordType<TargetSchema> | "id",
+    sourceValue?: any
+  ): Promise<Array<MockView<InferRecordType<TargetSchema> & { id: string }>>>;
 }
 
 /**
@@ -98,7 +118,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     if (this.relationsInitialized) return;
 
     for (const [collectionName, schema] of Object.entries(this.schemas)) {
-      const relations = extractRelationConfigs(collectionName, schema as CollectionSchema);
+      const relations = extractRelationConfigs(collectionName, schema as CollectionSchema<any>);
       
       for (const relationConfig of relations) {
         const sourceCol = this.collections.get(relationConfig.sourceCollection);
@@ -191,8 +211,8 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
         );
       }
 
-      const simpleSchema = toSimpleSchemaRuntime(schema as CollectionSchema);
-      const collection = new MockCollection(schema as CollectionSchema);
+      const simpleSchema = toSimpleSchemaRuntime(schema as CollectionSchema<any>);
+      const collection = new MockCollection(schema as CollectionSchema<any>);
       const persistConfig: MockPersistConfig<typeof simpleSchema> = {
         name: collectionName,
         collection,

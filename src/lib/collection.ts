@@ -11,6 +11,8 @@ import {
   CollectionSchema,
   toSimpleSchemaRuntime,
   extractIndexConfigs,
+  extractHiddenFields,
+  filterHiddenFields,
 } from "./schema";
 
 /**
@@ -42,25 +44,29 @@ export class MockCollection<S extends MockRecordSchema> {
   private schema: S;
   private onModifyCallbacks: (() => void)[] = [];
   private autoIndexesCreated: boolean = false;
+  private hiddenFields: string[] = [];
 
   /**
    * Creates a new `MockCollection` instance.
    * @param schema - The collection schema with field definitions
    */
-  constructor(schema: S | CollectionSchema) {
+  constructor(schema: S | CollectionSchema<any>) {
     // Convert collection schema to simple format for internal use
-    this.schema = toSimpleSchemaRuntime(schema as CollectionSchema) as S;
+    this.schema = toSimpleSchemaRuntime(schema as CollectionSchema<any>) as S;
     this.btree = new BTree<string, MockRecord<S>>(64);
     this.indexManager = new IndexManager<S>();
     
+    // Extract hidden fields from schema
+    this.hiddenFields = extractHiddenFields(schema as CollectionSchema<any>);
+    
     // Auto-create indexes from schema
-    this.initializeAutoIndexes(schema as CollectionSchema);
+    this.initializeAutoIndexes(schema as CollectionSchema<any>);
   }
 
   /**
    * Initializes indexes defined in the schema
    */
-  private async initializeAutoIndexes(schema: CollectionSchema): Promise<void> {
+  private async initializeAutoIndexes(schema: CollectionSchema<any>): Promise<void> {
     if (this.autoIndexesCreated) return;
     
     const indexConfigs = extractIndexConfigs(schema);
@@ -100,6 +106,18 @@ export class MockCollection<S extends MockRecordSchema> {
 
   private triggerModify(): void {
     this.onModifyCallbacks.forEach((cb) => cb());
+  }
+
+  /**
+   * Filters hidden fields from a record view
+   * @param view - Record view to filter
+   * @returns Filtered view without hidden fields
+   */
+  private filterHidden(view: MockView<InferSchemaType<S>>): MockView<InferSchemaType<S>> {
+    if (this.hiddenFields.length === 0) {
+      return view;
+    }
+    return filterHiddenFields(view, this.hiddenFields) as MockView<InferSchemaType<S>>;
   }
 
   /**
@@ -149,7 +167,7 @@ export class MockCollection<S extends MockRecordSchema> {
       this.indexManager.addToIndexes(view);
       
       this.triggerModify();
-      return view;
+      return this.filterHidden(view);
     } finally {
       release();
     }
@@ -163,7 +181,7 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      return this.btree.toArray().map((entry) => entry.value.view());
+      return this.btree.toArray().map((entry) => this.filterHidden(entry.value.view()));
     } finally {
       release();
     }
@@ -184,7 +202,8 @@ export class MockCollection<S extends MockRecordSchema> {
       // Get all records from B-Tree and filter
       return this.btree.toArray()
         .map((entry) => entry.value.view())
-        .filter(callback);
+        .filter(callback)
+        .map((view) => this.filterHidden(view));
     } finally {
       release();
     }
@@ -204,7 +223,7 @@ export class MockCollection<S extends MockRecordSchema> {
       const entries = this.btree.toArray();
       for (const entry of entries) {
         const view = entry.value.view();
-        if (callback(view)) return view;
+        if (callback(view)) return this.filterHidden(view);
       }
       return null;
     } finally {
@@ -223,7 +242,7 @@ export class MockCollection<S extends MockRecordSchema> {
 
     try {
       const record = this.btree.search(id);
-      return record ? record.view() : null;
+      return record ? this.filterHidden(record.view()) : null;
     } finally {
       release();
     }
@@ -362,7 +381,7 @@ export class MockCollection<S extends MockRecordSchema> {
         const id = index.search(value);
         if (id) {
           const record = this.btree.search(id);
-          return record ? record.view() : null;
+          return record ? this.filterHidden(record.view()) : null;
         }
         return null;
       }
@@ -403,7 +422,7 @@ export class MockCollection<S extends MockRecordSchema> {
       for (const id of ids) {
         const record = this.btree.search(id);
         if (record) {
-          results.push(record.view());
+          results.push(this.filterHidden(record.view()));
         }
       }
 
@@ -436,5 +455,107 @@ export class MockCollection<S extends MockRecordSchema> {
     } finally {
       release();
     }
+  }
+
+  /**
+   * Performs an INNER JOIN with another collection
+   * Returns only records that have matching records in both collections
+   * @param targetCollection - Collection to join with
+   * @param sourceField - Field in this collection (foreign key)
+   * @param targetField - Field in target collection (usually 'id')
+   */
+  public async innerJoin<T extends MockRecordSchema>(
+    targetCollection: MockCollection<T>,
+    sourceField: keyof InferSchemaType<S>,
+    targetField: keyof InferSchemaType<T> = 'id' as keyof InferSchemaType<T>
+  ): Promise<Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> }>> {
+    const sourceRecords = await this.all();
+    const results: Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> }> = [];
+
+    for (const sourceRecord of sourceRecords) {
+      const foreignKeyValue = (sourceRecord as any)[sourceField];
+
+      const targetRecord = await targetCollection.findByField(
+        targetField,
+        foreignKeyValue
+      );
+
+      if (targetRecord) {
+        results.push({
+          ...sourceRecord,
+          joined: targetRecord,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Performs a LEFT JOIN with another collection
+   * Returns all records from source, with matched target records (or null)
+   * @param targetCollection - Collection to join with
+   * @param sourceField - Field in this collection (foreign key)
+   * @param targetField - Field in target collection (usually 'id')
+   */
+  public async leftJoin<T extends MockRecordSchema>(
+    targetCollection: MockCollection<T>,
+    sourceField: keyof InferSchemaType<S>,
+    targetField: keyof InferSchemaType<T> = 'id' as keyof InferSchemaType<T>
+  ): Promise<Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> | null }>> {
+    const sourceRecords = await this.all();
+    const results: Array<MockView<InferSchemaType<S>> & { joined: MockView<InferSchemaType<T>> | null }> = [];
+
+    for (const sourceRecord of sourceRecords) {
+      const foreignKeyValue = (sourceRecord as any)[sourceField];
+
+      const targetRecord = await targetCollection.findByField(
+        targetField,
+        foreignKeyValue
+      );
+
+      results.push({
+        ...sourceRecord,
+        joined: targetRecord || null,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Gets related records from another collection
+   * @param targetCollection - Collection to get related records from
+   * @param sourceField - Field in this collection
+   * @param targetField - Field in target collection to match
+   * @param sourceValue - Value to match (if not provided, gets all relations)
+   */
+  public async getRelated<T extends MockRecordSchema>(
+    targetCollection: MockCollection<T>,
+    sourceField: keyof InferSchemaType<S>,
+    targetField: keyof InferSchemaType<T>,
+    sourceValue?: any
+  ): Promise<MockView<InferSchemaType<T>>[]> {
+    if (sourceValue !== undefined) {
+      return targetCollection.find(
+        (record) => (record as any)[targetField] === sourceValue
+      );
+    }
+
+    // Get all unique values from source field
+    const sourceRecords = await this.all();
+    const uniqueValues = new Set(
+      sourceRecords.map((record) => (record as any)[sourceField]).filter((v) => v != null)
+    );
+
+    const results: MockView<InferSchemaType<T>>[] = [];
+    for (const value of uniqueValues) {
+      const related = await targetCollection.find(
+        (record) => (record as any)[targetField] === value
+      );
+      results.push(...related);
+    }
+
+    return results;
   }
 }

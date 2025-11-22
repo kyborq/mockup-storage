@@ -26,15 +26,41 @@ export interface RelationConfig<
   sourceCollection: MockCollection<SourceSchema>;
   /** Target collection */
   targetCollection: MockCollection<TargetSchema>;
-  /** Source field (foreign key field) */
+  /** Source field (foreign key field) - TypeScript will autocomplete available fields */
   sourceField: keyof InferSchemaType<SourceSchema>;
-  /** Target field (usually 'id' or unique field) */
+  /** Target field (usually 'id' or unique field) - TypeScript will autocomplete available fields */
   targetField: keyof InferSchemaType<TargetSchema>;
   /** Type of relation */
   type: RelationType;
   /** Cascade delete (default: false) */
   onDelete?: "cascade" | "set-null" | "restrict";
 }
+
+/**
+ * Type-safe relation configuration builder
+ * Provides full type hints and autocomplete for field names
+ */
+export type TypedRelationConfig<
+  SourceSchema extends MockRecordSchema,
+  TargetSchema extends MockRecordSchema,
+  SourceField extends keyof InferSchemaType<SourceSchema>,
+  TargetField extends keyof InferSchemaType<TargetSchema>
+> = {
+  /** Name of the relation */
+  name: string;
+  /** Source collection */
+  sourceCollection: MockCollection<SourceSchema>;
+  /** Target collection */
+  targetCollection: MockCollection<TargetSchema>;
+  /** Source field (foreign key field) - fully typed */
+  sourceField: SourceField;
+  /** Target field (usually 'id' or unique field) - fully typed */
+  targetField: TargetField;
+  /** Type of relation */
+  type: RelationType;
+  /** Cascade delete (default: false) */
+  onDelete?: "cascade" | "set-null" | "restrict";
+};
 
 /**
  * JOIN types
@@ -385,5 +411,34 @@ export class RelationManager {
     }
     return metadata;
   }
+}
+
+/**
+ * Helper function to create type-safe relation with full autocomplete
+ * @example
+ * const postsToUsers = createRelation({
+ *   name: 'posts_user',
+ *   sourceCollection: posts,
+ *   targetCollection: users,
+ *   sourceField: 'userId', // TypeScript autocompletes available fields
+ *   targetField: 'id',     // TypeScript autocompletes available fields
+ *   type: 'many-to-one'
+ * });
+ */
+export function createRelation<
+  SourceSchema extends MockRecordSchema,
+  TargetSchema extends MockRecordSchema
+>(
+  config: RelationConfig<SourceSchema, TargetSchema> | {
+    name: string;
+    sourceCollection: any;
+    targetCollection: any;
+    sourceField: any;
+    targetField: any;
+    type: RelationType;
+    onDelete?: "cascade" | "set-null" | "restrict";
+  }
+): Relation<SourceSchema, TargetSchema> {
+  return new Relation(config as RelationConfig<SourceSchema, TargetSchema>);
 }
 

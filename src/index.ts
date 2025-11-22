@@ -1,4 +1,4 @@
-import { MockStorage, MockStorageConfig } from "./lib/storage";
+import { MockStorage, MockStorageConfig, TypedMockCollection } from "./lib/storage";
 import { MockCollection, MockFilter } from "./lib/collection";
 import { MockRecord, MockView } from "./lib/record";
 import {
@@ -21,25 +21,32 @@ import {
   Relation,
   RelationManager,
   RelationConfig,
+  TypedRelationConfig,
   RelationType,
   JoinType,
   JoinResult,
+  createRelation,
 } from "./lib/relations";
 import {
   DatabaseSchemas,
+  TypedDatabaseSchemas,
   CollectionSchema,
   FieldDefinition,
   FieldRelation,
   toSimpleSchema,
   extractIndexConfigs,
   extractRelationConfigs,
+  extractHiddenFields,
+  filterHiddenFields,
   InferRecordType,
+  InferVisibleRecordType,
 } from "./lib/schema";
 
 export {
   // Core classes
   MockStorage,
   MockCollection,
+  TypedMockCollection,
   MockFilter,
   MockRecord,
   MockView,
@@ -73,19 +80,25 @@ export {
   Relation,
   RelationManager,
   RelationConfig,
+  TypedRelationConfig,
   RelationType,
   JoinType,
   JoinResult,
+  createRelation,
 
   // Schema System
   DatabaseSchemas,
+  TypedDatabaseSchemas,
   CollectionSchema,
   FieldDefinition,
   FieldRelation,
   toSimpleSchema,
   extractIndexConfigs,
   extractRelationConfigs,
+  extractHiddenFields,
+  filterHiddenFields,
   InferRecordType,
+  InferVisibleRecordType,
 
   // Storage Config
   MockStorageConfig,
