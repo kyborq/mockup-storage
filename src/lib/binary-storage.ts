@@ -385,7 +385,7 @@ export class BinaryStorage {
 
       // Write fields
       for (const [fieldName, fieldType] of Object.entries(schema)) {
-        const value = (record as any)[fieldName];
+        const value = record[fieldName as keyof typeof record];
 
         if (value === null || value === undefined) {
           writer.writeByte(TypeCode.NULL);
@@ -396,13 +396,13 @@ export class BinaryStorage {
         switch (fieldType) {
           case "string":
             writer.writeByte(TypeCode.STRING);
-            writer.writeString(value);
+            writer.writeString(typeof value === "string" ? value : String(value));
             break;
 
           case "number":
             writer.writeByte(TypeCode.NUMBER);
             writer.writeUInt32(8);
-            writer.writeDouble(value);
+            writer.writeDouble(typeof value === "number" ? value : Number(value));
             break;
 
           case "boolean":
@@ -414,7 +414,7 @@ export class BinaryStorage {
           case "datetime":
             writer.writeByte(TypeCode.DATETIME);
             writer.writeUInt32(8);
-            writer.writeDouble(value.getTime());
+            writer.writeDouble(value instanceof Date ? value.getTime() : new Date(value as string).getTime());
             break;
         }
       }
@@ -434,7 +434,7 @@ export class BinaryStorage {
    */
   public static deserialize(buffer: Buffer): {
     schema: MockRecordSchema;
-    records: any[];
+    records: Array<Record<string, string | number | boolean | Date | null>>;
     indexes: IndexConfig[];
   } {
     const reader = new BinaryReader(buffer);
@@ -534,13 +534,13 @@ export class BinaryStorage {
     reader: BinaryReader,
     schema: MockRecordSchema,
     recordCount: number
-  ): any[] {
-    const records: any[] = [];
+  ): Array<Record<string, string | number | boolean | Date | null>> {
+    const records: Array<Record<string, string | number | boolean | Date | null>> = [];
 
     for (let i = 0; i < recordCount; i++) {
       const recordLength = reader.readUInt32();
       const id = reader.readString();
-      const record: any = { id };
+      const record: Record<string, string | number | boolean | Date | null> = { id };
 
       for (const [fieldName, fieldType] of Object.entries(schema)) {
         const valueType = reader.readByte();

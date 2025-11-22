@@ -34,7 +34,7 @@ const HEADER_SIZE = 64;
 export interface CollectionData {
   name: string;
   schema: MockRecordSchema;
-  records: any[];
+  records: Array<Record<string, string | number | boolean | Date | null>>;
   indexes: Array<{ name: string; field: string; unique: boolean }>;
 }
 

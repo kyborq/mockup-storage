@@ -27,6 +27,20 @@ export interface FieldRelation<CollectionNames extends string = string> {
 }
 
 /**
+ * Type helper to get default value type based on field type
+ */
+type DefaultValueType<T extends "string" | "number" | "boolean" | "datetime"> =
+  T extends "string"
+    ? string
+    : T extends "number"
+    ? number
+    : T extends "boolean"
+    ? boolean
+    : T extends "datetime"
+    ? Date
+    : never;
+
+/**
  * Field definition with complete metadata
  */
 export interface FieldDefinition<CollectionNames extends string = string> {
@@ -38,8 +52,8 @@ export interface FieldDefinition<CollectionNames extends string = string> {
   unique?: boolean;
   /** Field is required */
   required?: boolean;
-  /** Default value */
-  default?: any;
+  /** Default value - type matches field type */
+  default?: DefaultValueType<this["type"]>;
   /** Relation definition (for foreign keys) */
   relation?: FieldRelation<CollectionNames>;
   /** Hide field from query results (like private fields in classes) */
@@ -49,29 +63,36 @@ export interface FieldDefinition<CollectionNames extends string = string> {
 /**
  * Collection schema - uses field definitions
  */
-export type CollectionSchema<CollectionNames extends string = string> = Record<string, FieldDefinition<CollectionNames>>;
+export type CollectionSchema<CollectionNames extends string = string> = Record<
+  string,
+  FieldDefinition<CollectionNames>
+>;
 
 /**
  * Database schemas - collection name to schema mapping
  */
-export type DatabaseSchemas = Record<string, CollectionSchema<any>>;
+export type DatabaseSchemas = Record<string, CollectionSchema<string>>;
 
 /**
  * Type-safe database schemas with autocomplete for collection names
  */
-export type TypedDatabaseSchemas<T extends Record<string, CollectionSchema<keyof T & string>>> = T;
+export type TypedDatabaseSchemas<
+  T extends Record<string, CollectionSchema<keyof T & string>>
+> = T;
 
 /**
  * Type helper to convert CollectionSchema to MockRecordSchema at type level
  */
-export type toSimpleSchema<T extends CollectionSchema<any>> = {
+export type toSimpleSchema<T extends CollectionSchema<string>> = {
   [K in keyof T]: T[K]["type"];
 };
 
 /**
  * Converts collection schema to simple MockRecordSchema format (runtime)
  */
-export function toSimpleSchemaRuntime(schema: CollectionSchema<any>): MockRecordSchema {
+export function toSimpleSchemaRuntime<CN extends string = string>(
+  schema: CollectionSchema<CN>
+): MockRecordSchema {
   const simpleSchema: MockRecordSchema = {};
   for (const [key, value] of Object.entries(schema)) {
     simpleSchema[key] = value.type;
@@ -82,8 +103,8 @@ export function toSimpleSchemaRuntime(schema: CollectionSchema<any>): MockRecord
 /**
  * Extracts index configurations from schema
  */
-export function extractIndexConfigs(
-  schema: CollectionSchema<any>
+export function extractIndexConfigs<CN extends string = string>(
+  schema: CollectionSchema<CN>
 ): Array<{ name: string; field: string; unique: boolean }> {
   const indexes: Array<{ name: string; field: string; unique: boolean }> = [];
 
@@ -103,9 +124,9 @@ export function extractIndexConfigs(
 /**
  * Extracts relation configurations from schema
  */
-export function extractRelationConfigs(
+export function extractRelationConfigs<CN extends string = string>(
   collectionName: string,
-  schema: CollectionSchema<any>
+  schema: CollectionSchema<CN>
 ): Array<{
   name: string;
   sourceCollection: string;
@@ -158,59 +179,76 @@ type InferFieldType<T extends FieldDefinition["type"]> = T extends "string"
 /**
  * Type helper to determine if field is required
  */
-type IsRequired<T extends FieldDefinition<any>> = T["required"] extends true ? true : false;
+type IsRequired<T extends FieldDefinition<string>> = T["required"] extends true
+  ? true
+  : false;
 
 /**
  * Type helper to infer record type from collection schema
  * Handles required and optional fields correctly
  */
-export type InferRecordType<T extends CollectionSchema<any>> = {
-  [K in keyof T as IsRequired<T[K]> extends true ? K : never]: InferFieldType<T[K]["type"]>;
+export type InferRecordType<T extends CollectionSchema<string>> = {
+  [K in keyof T as IsRequired<T[K]> extends true ? K : never]: InferFieldType<
+    T[K]["type"]
+  >;
 } & {
-  [K in keyof T as IsRequired<T[K]> extends true ? never : K]?: InferFieldType<T[K]["type"]>;
+  [K in keyof T as IsRequired<T[K]> extends true ? never : K]?: InferFieldType<
+    T[K]["type"]
+  >;
 };
 
 /**
  * Type helper to check if field is hidden
  */
-type IsHidden<T extends FieldDefinition<any>> = T["hidden"] extends true ? true : false;
+type IsHidden<T extends FieldDefinition<string>> = T["hidden"] extends true
+  ? true
+  : false;
 
 /**
  * Type helper to infer visible record type (excluding hidden fields)
  */
-export type InferVisibleRecordType<T extends CollectionSchema<any>> = {
-  [K in keyof T as IsHidden<T[K]> extends true ? never : (IsRequired<T[K]> extends true ? K : never)]: InferFieldType<T[K]["type"]>;
+export type InferVisibleRecordType<T extends CollectionSchema<string>> = {
+  [K in keyof T as IsHidden<T[K]> extends true
+    ? never
+    : IsRequired<T[K]> extends true
+    ? K
+    : never]: InferFieldType<T[K]["type"]>;
 } & {
-  [K in keyof T as IsHidden<T[K]> extends true ? never : (IsRequired<T[K]> extends true ? never : K)]?: InferFieldType<T[K]["type"]>;
+  [K in keyof T as IsHidden<T[K]> extends true
+    ? never
+    : IsRequired<T[K]> extends true
+    ? never
+    : K]?: InferFieldType<T[K]["type"]>;
 };
 
 /**
  * Extracts hidden field names from schema
  */
-export function extractHiddenFields(schema: CollectionSchema<any>): string[] {
+export function extractHiddenFields<CN extends string = string>(
+  schema: CollectionSchema<CN>
+): string[] {
   const hiddenFields: string[] = [];
-  
+
   for (const [fieldName, fieldDef] of Object.entries(schema)) {
     if (fieldDef.hidden === true) {
       hiddenFields.push(fieldName);
     }
   }
-  
+
   return hiddenFields;
 }
 
 /**
  * Filters out hidden fields from a record
  */
-export function filterHiddenFields<T extends Record<string, any>>(
-  record: T,
-  hiddenFields: string[]
-): Omit<T, string> {
+export function filterHiddenFields<
+  T extends Record<string, string | number | boolean | Date>
+>(record: T, hiddenFields: string[]): Omit<T, string> {
   const filtered = { ...record };
-  
+
   for (const field of hiddenFields) {
     delete filtered[field];
   }
-  
+
   return filtered;
 }

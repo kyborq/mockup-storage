@@ -50,24 +50,26 @@ export class MockCollection<S extends MockRecordSchema> {
    * Creates a new `MockCollection` instance.
    * @param schema - The collection schema with field definitions
    */
-  constructor(schema: S | CollectionSchema<any>) {
+  constructor(schema: S | CollectionSchema<string>) {
     // Convert collection schema to simple format for internal use
-    this.schema = toSimpleSchemaRuntime(schema as CollectionSchema<any>) as S;
+    this.schema = toSimpleSchemaRuntime(
+      schema as CollectionSchema<string>
+    ) as S;
     this.btree = new BTree<string, MockRecord<S>>(64);
     this.indexManager = new IndexManager<S>();
 
     // Extract hidden fields from schema
-    this.hiddenFields = extractHiddenFields(schema as CollectionSchema<any>);
+    this.hiddenFields = extractHiddenFields(schema as CollectionSchema<string>);
 
     // Auto-create indexes from schema
-    this.initializeAutoIndexes(schema as CollectionSchema<any>);
+    this.initializeAutoIndexes(schema as CollectionSchema<string>);
   }
 
   /**
    * Initializes indexes defined in the schema
    */
   private async initializeAutoIndexes(
-    schema: CollectionSchema<any>
+    schema: CollectionSchema<string>
   ): Promise<void> {
     if (this.autoIndexesCreated) return;
 
@@ -77,7 +79,7 @@ export class MockCollection<S extends MockRecordSchema> {
       try {
         await this.createIndex({
           name: config.name,
-          field: config.field as any,
+          field: config.field as keyof InferSchemaType<S>,
           unique: config.unique,
         });
       } catch (error) {
@@ -139,7 +141,11 @@ export class MockCollection<S extends MockRecordSchema> {
 
       data.forEach((view) => {
         const { id, ...rest } = view;
-        const record = new MockRecord<S>(rest as any, this.schema, id);
+        const record = new MockRecord<S>(
+          rest as Omit<MockView<InferSchemaType<S>>, "id"> & InferSchemaType<S>,
+          this.schema,
+          id
+        );
         this.btree.insert(id, record);
       });
 
@@ -416,7 +422,7 @@ export class MockCollection<S extends MockRecordSchema> {
       }
 
       // Fallback to linear search
-      return this.first((record) => (record as any)[field] === value);
+      return this.first((record) => record[field as string] === value);
     } finally {
       release();
     }
@@ -510,11 +516,13 @@ export class MockCollection<S extends MockRecordSchema> {
     > = [];
 
     for (const sourceRecord of sourceRecords) {
-      const foreignKeyValue = (sourceRecord as any)[sourceField];
+      const foreignKeyValue: string | number | boolean | Date = sourceRecord[
+        sourceField as keyof typeof sourceRecord
+      ] as string | number | boolean | Date;
 
       const targetRecord = await targetCollection.findByField(
         targetField,
-        foreignKeyValue
+        foreignKeyValue as InferSchemaType<T>[typeof targetField]
       );
 
       if (targetRecord) {
@@ -554,11 +562,13 @@ export class MockCollection<S extends MockRecordSchema> {
     > = [];
 
     for (const sourceRecord of sourceRecords) {
-      const foreignKeyValue = (sourceRecord as any)[sourceField];
+      const foreignKeyValue: string | number | boolean | Date = sourceRecord[
+        sourceField as keyof typeof sourceRecord
+      ] as string | number | boolean | Date;
 
       const targetRecord = await targetCollection.findByField(
         targetField,
-        foreignKeyValue
+        foreignKeyValue as InferSchemaType<T>[typeof targetField]
       );
 
       results.push({
@@ -581,26 +591,33 @@ export class MockCollection<S extends MockRecordSchema> {
     targetCollection: MockCollection<T>,
     sourceField: keyof InferSchemaType<S>,
     targetField: keyof InferSchemaType<T>,
-    sourceValue?: any
+    sourceValue?: string | number | boolean | Date
   ): Promise<MockView<InferSchemaType<T>>[]> {
     if (sourceValue !== undefined) {
       return targetCollection.find(
-        (record) => (record as any)[targetField] === sourceValue
+        (record) => record[targetField as keyof typeof record] === sourceValue
       );
     }
 
     // Get all unique values from source field
     const sourceRecords = await this.all();
-    const uniqueValues = new Set(
+    const uniqueValues = new Set<string | number | boolean | Date>(
       sourceRecords
-        .map((record) => (record as any)[sourceField])
+        .map(
+          (record) =>
+            record[sourceField as keyof typeof record] as
+              | string
+              | number
+              | boolean
+              | Date
+        )
         .filter((v) => v != null)
     );
 
     const results: MockView<InferSchemaType<T>>[] = [];
     for (const value of uniqueValues) {
       const related = await targetCollection.find(
-        (record) => (record as any)[targetField] === value
+        (record) => record[targetField as keyof typeof record] === value
       );
       results.push(...related);
     }

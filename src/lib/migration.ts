@@ -64,7 +64,7 @@ export class Migration {
         const { schema, records } = JSON.parse(jsonData);
 
         // Convert datetime strings back to Date objects
-        const convertedRecords = records.map((record: any) => {
+        const convertedRecords = records.map((record: Record<string, string | number | boolean | Date | null>) => {
           const converted = { ...record };
           for (const [key, type] of Object.entries(schema)) {
             if (type === "datetime" && typeof converted[key] === "string") {
@@ -150,11 +150,12 @@ export class Migration {
         const { schema, records } = BinaryStorage.deserialize(buffer);
 
         // Convert Date objects to ISO strings
-        const convertedRecords = records.map((record: any) => {
+        const convertedRecords = records.map((record: Record<string, string | number | boolean | Date | null>) => {
           const converted = { ...record };
           for (const [key, type] of Object.entries(schema)) {
-            if (type === "datetime" && converted[key] instanceof Date) {
-              converted[key] = converted[key].toISOString();
+            const value = converted[key];
+            if (type === "datetime" && value instanceof Date) {
+              converted[key] = value.toISOString();
             }
           }
           return converted;

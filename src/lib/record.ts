@@ -96,7 +96,7 @@ export class MockRecord<T extends MockRecordSchema> {
    * @returns True if the value matches the type, otherwise false.
    */
   private isValidType(
-    value: any,
+    value: string | number | boolean | Date | null | undefined,
     expectedType: keyof MockRecordTypeMap
   ): boolean {
     switch (expectedType) {

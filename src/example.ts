@@ -4,6 +4,7 @@ const storage = new MockStorage(
   {
     author: {
       name: { type: "string", unique: true },
+      asd: { type: "boolean", required: true },
     },
     book: {
       title: { type: "string" },
@@ -22,7 +23,6 @@ const main = async () => {
   const authors = await storage.collection("author");
   const books = await storage.collection("book");
 
-  // const author1 = await authors.add({ name: "Ivan" });
   // await books.add({ authorId: author1.id, title: "Voina i mir" });
   // await books.add({ authorId: author1.id, title: "Voina i mir chast 2" });
 

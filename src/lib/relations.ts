@@ -9,7 +9,11 @@ import { MockCollection } from "./collection";
 /**
  * Relation types
  */
-export type RelationType = "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
+export type RelationType =
+  | "one-to-one"
+  | "one-to-many"
+  | "many-to-one"
+  | "many-to-many";
 
 /**
  * Relation configuration
@@ -70,9 +74,10 @@ export type JoinType = "inner" | "left" | "right" | "full";
 /**
  * JOIN result - combines two record types
  */
-export type JoinResult<S1 extends MockRecordSchema, S2 extends MockRecordSchema> = MockView<
-  InferSchemaType<S1>
-> & {
+export type JoinResult<
+  S1 extends MockRecordSchema,
+  S2 extends MockRecordSchema
+> = MockView<InferSchemaType<S1>> & {
   joined: MockView<InferSchemaType<S2>> | null;
 };
 
@@ -122,13 +127,13 @@ export class Relation<
     const results: JoinResult<SourceSchema, TargetSchema>[] = [];
 
     for (const sourceRecord of sourceRecords) {
-      const foreignKeyValue = sourceRecord[
+      const foreignKeyValue: string | number | boolean | Date = sourceRecord[
         this.config.sourceField as keyof typeof sourceRecord
-      ] as any;
+      ] as string | number | boolean | Date;
 
       const targetRecord = await this.config.targetCollection.findByField(
         this.config.targetField,
-        foreignKeyValue
+        foreignKeyValue as InferSchemaType<TargetSchema>[typeof this.config.targetField]
       );
 
       if (targetRecord) {
@@ -151,13 +156,13 @@ export class Relation<
     const results: JoinResult<SourceSchema, TargetSchema>[] = [];
 
     for (const sourceRecord of sourceRecords) {
-      const foreignKeyValue = sourceRecord[
+      const foreignKeyValue: string | number | boolean | Date = sourceRecord[
         this.config.sourceField as keyof typeof sourceRecord
-      ] as any;
+      ] as string | number | boolean | Date;
 
       const targetRecord = await this.config.targetCollection.findByField(
         this.config.targetField,
-        foreignKeyValue
+        foreignKeyValue as InferSchemaType<TargetSchema>[typeof this.config.targetField]
       );
 
       results.push({
@@ -188,14 +193,14 @@ export class Relation<
     > = [];
 
     for (const targetRecord of targetRecords) {
-      const targetValue = targetRecord[
+      const targetValue: string | number | boolean | Date = targetRecord[
         this.config.targetField as keyof typeof targetRecord
-      ] as any;
+      ] as string | number | boolean | Date;
 
       // Find all source records that reference this target
       const sourceRecords = await this.config.sourceCollection.find(
         (record) =>
-          (record as any)[this.config.sourceField as string] === targetValue
+          record[this.config.sourceField as keyof typeof record] === targetValue
       );
 
       if (sourceRecords.length > 0) {
@@ -223,21 +228,23 @@ export class Relation<
   public async getRelated(
     sourceRecord: MockView<InferSchemaType<SourceSchema>>
   ): Promise<MockView<InferSchemaType<TargetSchema>>[]> {
-    const foreignKeyValue = sourceRecord[
+    const foreignKeyValue: string | number | boolean | Date = sourceRecord[
       this.config.sourceField as keyof typeof sourceRecord
-    ] as any;
+    ] as string | number | boolean | Date;
 
     if (this.config.type === "one-to-one") {
       const record = await this.config.targetCollection.findByField(
         this.config.targetField,
-        foreignKeyValue
+        foreignKeyValue as InferSchemaType<TargetSchema>[typeof this.config.targetField]
       );
       return record ? [record] : [];
     }
 
     // For one-to-many and many-to-many
     return this.config.targetCollection.find(
-      (record) => (record as any)[this.config.targetField as string] === foreignKeyValue
+      (record) =>
+        record[this.config.targetField as keyof typeof record] ===
+        foreignKeyValue
     );
   }
 
@@ -247,20 +254,28 @@ export class Relation<
    */
   public async validateIntegrity(): Promise<{
     valid: boolean;
-    orphanedRecords: Array<{ id: string; field: string; value: any }>;
+    orphanedRecords: Array<{
+      id: string;
+      field: string;
+      value: string | number | boolean | Date;
+    }>;
   }> {
     const sourceRecords = await this.config.sourceCollection.all();
-    const orphanedRecords: Array<{ id: string; field: string; value: any }> = [];
+    const orphanedRecords: Array<{
+      id: string;
+      field: string;
+      value: string | number | boolean | Date;
+    }> = [];
 
     for (const sourceRecord of sourceRecords) {
-      const foreignKeyValue = sourceRecord[
+      const foreignKeyValue: string | number | boolean | Date = sourceRecord[
         this.config.sourceField as keyof typeof sourceRecord
-      ] as any;
+      ] as string | number | boolean | Date;
 
       if (foreignKeyValue !== null && foreignKeyValue !== undefined) {
         const targetRecord = await this.config.targetCollection.findByField(
           this.config.targetField,
-          foreignKeyValue
+          foreignKeyValue as InferSchemaType<TargetSchema>[typeof this.config.targetField]
         );
 
         if (!targetRecord) {
@@ -284,10 +299,11 @@ export class Relation<
    * When a target record is deleted, handle source records
    */
   public async handleDelete(
-    targetValue: any
+    targetValue: string | number | boolean | Date
   ): Promise<{ deleted: number; updated: number }> {
     const sourceRecords = await this.config.sourceCollection.find(
-      (record) => (record as any)[this.config.sourceField as string] === targetValue
+      (record) =>
+        record[this.config.sourceField as keyof typeof record] === targetValue
     );
 
     let deleted = 0;
@@ -339,7 +355,8 @@ export class Relation<
  * Relation manager for handling multiple relations
  */
 export class RelationManager {
-  private relations: Map<string, Relation<any, any>> = new Map();
+  private relations: Map<string, Relation<MockRecordSchema, MockRecordSchema>> =
+    new Map();
 
   /**
    * Defines a new relation
@@ -355,14 +372,19 @@ export class RelationManager {
     }
 
     const relation = new Relation(config);
-    this.relations.set(config.name, relation);
+    this.relations.set(
+      config.name,
+      relation as Relation<MockRecordSchema, MockRecordSchema>
+    );
     return relation;
   }
 
   /**
    * Gets a relation by name
    */
-  public getRelation(name: string): Relation<any, any> | undefined {
+  public getRelation(
+    name: string
+  ): Relation<MockRecordSchema, MockRecordSchema> | undefined {
     return this.relations.get(name);
   }
 
@@ -386,12 +408,26 @@ export class RelationManager {
   public async validateAllIntegrity(): Promise<
     Record<
       string,
-      { valid: boolean; orphanedRecords: Array<{ id: string; field: string; value: any }> }
+      {
+        valid: boolean;
+        orphanedRecords: Array<{
+          id: string;
+          field: string;
+          value: string | number | boolean | Date;
+        }>;
+      }
     >
   > {
     const results: Record<
       string,
-      { valid: boolean; orphanedRecords: Array<{ id: string; field: string; value: any }> }
+      {
+        valid: boolean;
+        orphanedRecords: Array<{
+          id: string;
+          field: string;
+          value: string | number | boolean | Date;
+        }>;
+      }
     > = {};
 
     for (const [name, relation] of this.relations.entries()) {
@@ -404,8 +440,14 @@ export class RelationManager {
   /**
    * Gets relation metadata for all relations
    */
-  public getAllMetadata() {
-    const metadata: Record<string, any> = {};
+  public getAllMetadata(): Record<
+    string,
+    ReturnType<Relation<MockRecordSchema, MockRecordSchema>["getMetadata"]>
+  > {
+    const metadata: Record<
+      string,
+      ReturnType<Relation<MockRecordSchema, MockRecordSchema>["getMetadata"]>
+    > = {};
     for (const [name, relation] of this.relations.entries()) {
       metadata[name] = relation.getMetadata();
     }
@@ -429,16 +471,17 @@ export function createRelation<
   SourceSchema extends MockRecordSchema,
   TargetSchema extends MockRecordSchema
 >(
-  config: RelationConfig<SourceSchema, TargetSchema> | {
-    name: string;
-    sourceCollection: any;
-    targetCollection: any;
-    sourceField: any;
-    targetField: any;
-    type: RelationType;
-    onDelete?: "cascade" | "set-null" | "restrict";
-  }
+  config:
+    | RelationConfig<SourceSchema, TargetSchema>
+    | {
+        name: string;
+        sourceCollection: MockCollection<SourceSchema>;
+        targetCollection: MockCollection<TargetSchema>;
+        sourceField: keyof InferSchemaType<SourceSchema>;
+        targetField: keyof InferSchemaType<TargetSchema>;
+        type: RelationType;
+        onDelete?: "cascade" | "set-null" | "restrict";
+      }
 ): Relation<SourceSchema, TargetSchema> {
   return new Relation(config as RelationConfig<SourceSchema, TargetSchema>);
 }
-

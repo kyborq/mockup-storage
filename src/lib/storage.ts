@@ -19,7 +19,7 @@ import { DatabaseFile } from "./database-file";
 /**
  * Typed wrapper for MockCollection with proper schema inference
  */
-export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
+export interface TypedMockCollection<Schema extends CollectionSchema<string>> {
   add(
     value: InferRecordType<Schema>
   ): Promise<MockView<InferRecordType<Schema> & { id: string }>>;
@@ -75,8 +75,10 @@ export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
   offModify(callback: () => void): void;
 
   // Join methods for relations
-  innerJoin<TargetSchema extends CollectionSchema<any>>(
-    targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
+  innerJoin<TargetSchema extends CollectionSchema<string>>(
+    targetCollection:
+      | TypedMockCollection<TargetSchema>
+      | MockCollection<MockRecordSchema>,
     sourceField: keyof InferRecordType<Schema>,
     targetField?: keyof InferRecordType<TargetSchema> | "id"
   ): Promise<
@@ -87,8 +89,10 @@ export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
     >
   >;
 
-  leftJoin<TargetSchema extends CollectionSchema<any>>(
-    targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
+  leftJoin<TargetSchema extends CollectionSchema<string>>(
+    targetCollection:
+      | TypedMockCollection<TargetSchema>
+      | MockCollection<MockRecordSchema>,
     sourceField: keyof InferRecordType<Schema>,
     targetField?: keyof InferRecordType<TargetSchema> | "id"
   ): Promise<
@@ -99,11 +103,13 @@ export interface TypedMockCollection<Schema extends CollectionSchema<any>> {
     >
   >;
 
-  getRelated<TargetSchema extends CollectionSchema<any>>(
-    targetCollection: TypedMockCollection<TargetSchema> | MockCollection<any>,
+  getRelated<TargetSchema extends CollectionSchema<string>>(
+    targetCollection:
+      | TypedMockCollection<TargetSchema>
+      | MockCollection<MockRecordSchema>,
     sourceField: keyof InferRecordType<Schema>,
     targetField: keyof InferRecordType<TargetSchema> | "id",
-    sourceValue?: any
+    sourceValue?: string | number | boolean | Date
   ): Promise<Array<MockView<InferRecordType<TargetSchema> & { id: string }>>>;
 }
 
@@ -123,8 +129,8 @@ export interface MockStorageConfig {
  * @template Schemas - Database schemas mapping collection names to schemas
  */
 export class MockStorage<Schemas extends DatabaseSchemas> {
-  private collections: Map<string, MockCollection<any>>;
-  private persisters: Map<string, MockPersist<any>>;
+  private collections: Map<string, MockCollection<MockRecordSchema>>;
+  private persisters: Map<string, MockPersist<MockRecordSchema>>;
   private config: MockStorageConfig;
   private schemas: Schemas;
   private relationManager: RelationManager;
@@ -164,7 +170,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     for (const [collectionName, schema] of Object.entries(this.schemas)) {
       const relations = extractRelationConfigs(
         collectionName,
-        schema as CollectionSchema<any>
+        schema as CollectionSchema<string>
       );
 
       for (const relationConfig of relations) {
@@ -206,14 +212,23 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
         if (data) {
           // Use existing schema if defined, otherwise use stored schema
           if (!this.schemas[name as keyof Schemas]) {
-            (this.schemas as any)[name] = data.schema;
+            // Convert simple schema to full schema
+            const fullSchema: CollectionSchema<string> = {};
+            for (const [key, value] of Object.entries(data.schema)) {
+              fullSchema[key] = {
+                type: value as "string" | "number" | "boolean" | "datetime",
+              };
+            }
+            (this.schemas as Record<string, CollectionSchema<string>>)[name] =
+              fullSchema;
           }
 
-          const collection = await this.collection(name as any, {
+          const collection = await this.collection(name as keyof Schemas, {
             persist: true,
           });
 
           // Load data into collection
+          // @ts-expect-error - Generic type complexity with loaded data requires runtime flexibility
           await collection.init(data.records);
 
           // Restore indexes
@@ -221,7 +236,9 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
             try {
               await collection.createIndex({
                 name: indexConfig.name,
-                field: indexConfig.field as any,
+                field: indexConfig.field as keyof InferRecordType<
+                  Schemas[typeof name]
+                >,
                 unique: indexConfig.unique,
               });
             } catch (error) {
@@ -264,9 +281,9 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       }
 
       const simpleSchema = toSimpleSchemaRuntime(
-        schema as CollectionSchema<any>
+        schema as CollectionSchema<string>
       );
-      const collection = new MockCollection(schema as CollectionSchema<any>);
+      const collection = new MockCollection(schema as CollectionSchema<string>);
       const persistConfig: MockPersistConfig<typeof simpleSchema> = {
         name: collectionName,
         collection,
@@ -296,9 +313,10 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       this.initializeRelations();
     }
 
-    return this.collections.get(collectionName)! as any as TypedMockCollection<
-      Schemas[Name]
-    >;
+    // Type assertion is safe here because MockCollection implements the interface
+    return this.collections.get(
+      collectionName
+    )! as MockCollection<MockRecordSchema> & TypedMockCollection<Schemas[Name]>;
   }
 
   /**
@@ -395,7 +413,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   public async getHealth(): Promise<{
     collections: Array<{
       collection: string;
-      meta: Awaited<ReturnType<MockPersist<any>["health"]>>;
+      meta: Awaited<ReturnType<MockPersist<MockRecordSchema>["health"]>>;
       count: number;
     }>;
     totalSize: number;
@@ -450,13 +468,13 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
    */
   public defineRelation<S1 extends keyof Schemas, S2 extends keyof Schemas>(
     config: Omit<
-      RelationConfig<any, any>,
+      RelationConfig<MockRecordSchema, MockRecordSchema>,
       "sourceCollection" | "targetCollection"
     > & {
       sourceCollection: S1;
       targetCollection: S2;
     }
-  ): Relation<any, any> {
+  ): Relation<MockRecordSchema, MockRecordSchema> {
     const sourceCol = this.collections.get(config.sourceCollection as string);
     const targetCol = this.collections.get(config.targetCollection as string);
 
@@ -482,7 +500,9 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
    * Gets a relation by name
    * @param name - Relation name
    */
-  public getRelation(name: string): Relation<any, any> | undefined {
+  public getRelation(
+    name: string
+  ): Relation<MockRecordSchema, MockRecordSchema> | undefined {
     return this.relationManager.getRelation(name);
   }
 

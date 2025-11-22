@@ -55,10 +55,10 @@ export interface IndexStats {
  * Single index implementation using B-Tree
  */
 export class Index<T extends MockRecordSchema> {
-  private btree: BTree<any, string>; // Maps field value -> record ID
+  private btree: BTree<string | number | boolean | Date, string>; // Maps field value -> record ID
   private config: Required<IndexConfig>;
   private fieldName: string;
-  private uniqueMap?: Map<any, string>; // For unique indexes
+  private uniqueMap?: Map<string | number | boolean | Date, string>; // For unique indexes
 
   constructor(config: IndexConfig) {
     this.config = {
@@ -67,7 +67,7 @@ export class Index<T extends MockRecordSchema> {
       ...config,
     };
     this.fieldName = config.field;
-    this.btree = new BTree<any, string>(32);
+    this.btree = new BTree<string | number | boolean | Date, string>(32);
 
     if (this.config.unique) {
       this.uniqueMap = new Map();
@@ -78,7 +78,7 @@ export class Index<T extends MockRecordSchema> {
    * Adds a record to the index
    */
   public add(record: MockView<InferSchemaType<T>>): void {
-    const fieldValue = (record as any)[this.fieldName];
+    const fieldValue = record[this.fieldName as keyof typeof record] as string | number | boolean | Date | undefined | null;
     
     if (fieldValue === undefined || fieldValue === null) {
       return; // Don't index null/undefined values
@@ -101,7 +101,7 @@ export class Index<T extends MockRecordSchema> {
    * Removes a record from the index
    */
   public remove(record: MockView<InferSchemaType<T>>): void {
-    const fieldValue = (record as any)[this.fieldName];
+    const fieldValue = record[this.fieldName as keyof typeof record] as string | number | boolean | Date | undefined | null;
     
     if (fieldValue === undefined || fieldValue === null) {
       return;
@@ -117,14 +117,14 @@ export class Index<T extends MockRecordSchema> {
   /**
    * Searches for a record ID by field value
    */
-  public search(value: any): string | null {
+  public search(value: string | number | boolean | Date): string | null {
     return this.btree.search(value);
   }
 
   /**
    * Searches for all record IDs within a range
    */
-  public rangeSearch(min: any, max: any): string[] {
+  public rangeSearch(min: string | number | boolean | Date, max: string | number | boolean | Date): string[] {
     const entries = this.btree.range(min, max);
     return entries.map((entry) => entry.value);
   }
