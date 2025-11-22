@@ -14,6 +14,7 @@ const schemas: DatabaseSchemas = {
     year: {
       type: "number",
       index: true, // For range queries
+      required: true,
     },
   },
 };
@@ -38,7 +39,6 @@ const main = async () => {
     await books.add({
       title: "JavaScript: The Good Parts",
       author: "Douglas Crockford",
-      year: 2008,
     });
   }
 

@@ -176,6 +176,7 @@ await storage2.commitAll();  // Manual save
 - **Indexing System**: Create indexes on any field for lightning-fast queries
 - **Binary Format**: Efficient binary storage, ~40% smaller than JSON
 - **Declarative Schema**: Define indexes, constraints, and relations directly in schema
+- **Schema Validation**: Strict runtime validation - rejects extra fields and type mismatches
 
 ### Performance
 - **Asynchronous API**: All operations return Promises for non‑blocking execution
@@ -184,7 +185,8 @@ await storage2.commitAll();  // Manual save
 - **Memory Efficient**: Optimized data structures minimize memory footprint
 
 ### Developer Experience
-- **Type Safety**: Full TypeScript support with schema validation
+- **Full Type Safety**: Complete TypeScript inference with autocomplete for all schema fields
+- **Runtime Validation**: Schema enforcement prevents invalid data at runtime
 - **CRUD Operations**: Complete Create, Read, Update, Delete functionality
 - **Flexible Queries**: Support for filters, ranges, and indexed lookups
 - **Easy Persistence**: Automatic file system persistence with configurable formats

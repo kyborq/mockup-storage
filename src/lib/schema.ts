@@ -55,9 +55,16 @@ export type CollectionSchema = Record<string, FieldDefinition>;
 export type DatabaseSchemas = Record<string, CollectionSchema>;
 
 /**
- * Converts collection schema to simple MockRecordSchema format
+ * Type helper to convert CollectionSchema to MockRecordSchema at type level
  */
-export function toSimpleSchema(schema: CollectionSchema): MockRecordSchema {
+export type toSimpleSchema<T extends CollectionSchema> = {
+  [K in keyof T]: T[K]["type"];
+};
+
+/**
+ * Converts collection schema to simple MockRecordSchema format (runtime)
+ */
+export function toSimpleSchemaRuntime(schema: CollectionSchema): MockRecordSchema {
   const simpleSchema: MockRecordSchema = {};
   for (const [key, value] of Object.entries(schema)) {
     simpleSchema[key] = value.type;
@@ -142,8 +149,16 @@ type InferFieldType<T extends FieldDefinition["type"]> = T extends "string"
   : never;
 
 /**
+ * Type helper to determine if field is required
+ */
+type IsRequired<T extends FieldDefinition> = T["required"] extends true ? true : false;
+
+/**
  * Type helper to infer record type from collection schema
+ * Handles required and optional fields correctly
  */
 export type InferRecordType<T extends CollectionSchema> = {
-  [K in keyof T]: InferFieldType<T[K]["type"]>;
+  [K in keyof T as IsRequired<T[K]> extends true ? K : never]: InferFieldType<T[K]["type"]>;
+} & {
+  [K in keyof T as IsRequired<T[K]> extends true ? never : K]?: InferFieldType<T[K]["type"]>;
 };

@@ -64,15 +64,26 @@ export class MockRecord<T extends MockRecordSchema> {
    * @throws Error if validation fails.
    */
   private validateRecord(record: InferSchemaType<T>, schema: T): void {
-    for (const key of Object.keys(schema) as (keyof T)[]) {
-      const expectedType = schema[key];
-      const value = record[key];
+    // Check for extra fields not in schema
+    const recordKeys = Object.keys(record);
+    const schemaKeys = Object.keys(schema);
+    
+    for (const key of recordKeys) {
+      if (!schemaKeys.includes(key)) {
+        throw new Error(
+          `Validation error: Field "${key}" is not defined in schema.`
+        );
+      }
+    }
+    
+    // Check types only for fields that are present in the record
+    for (const key of recordKeys) {
+      const expectedType = schema[key as keyof T];
+      const value = record[key as keyof InferSchemaType<T>];
 
       if (!this.isValidType(value, expectedType)) {
         throw new Error(
-          `Validation error: Field "${String(
-            key
-          )}" is expected to be of type "${expectedType}", but got "${typeof value}".`
+          `Validation error: Field "${key}" is expected to be of type "${expectedType}", but got "${typeof value}".`
         );
       }
     }

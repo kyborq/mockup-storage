@@ -4,10 +4,44 @@ import fs from "fs/promises";
 import { MockCollection } from "./collection";
 import { MockPersist, MockPersistConfig, MockPersistOptions } from "./persist";
 import { DEFAULT_DB_PATH } from "../constants";
-import { MockRecordSchema } from "./record";
+import { MockRecordSchema, MockView } from "./record";
 import { RelationManager, RelationConfig, Relation } from "./relations";
-import { DatabaseSchemas, CollectionSchema, toSimpleSchema, extractRelationConfigs } from "./schema";
+import { DatabaseSchemas, CollectionSchema, toSimpleSchema, toSimpleSchemaRuntime, extractRelationConfigs, InferRecordType } from "./schema";
 import { DatabaseFile } from "./database-file";
+
+/**
+ * Typed wrapper for MockCollection with proper schema inference
+ */
+export interface TypedMockCollection<Schema extends CollectionSchema> {
+  add(value: InferRecordType<Schema>): Promise<MockView<InferRecordType<Schema> & { id: string }>>;
+  all(): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
+  find(filter: (record: MockView<InferRecordType<Schema> & { id: string }>) => boolean): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
+  first(filter: (record: MockView<InferRecordType<Schema> & { id: string }>) => boolean): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  get(id: string): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  remove(id: string): Promise<boolean>;
+  update(id: string, updates: Partial<InferRecordType<Schema>>): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  findByField<K extends keyof InferRecordType<Schema>>(
+    field: K,
+    value: InferRecordType<Schema>[K]
+  ): Promise<MockView<InferRecordType<Schema> & { id: string }> | null>;
+  findByRange<K extends keyof InferRecordType<Schema>>(
+    field: K,
+    min: InferRecordType<Schema>[K],
+    max: InferRecordType<Schema>[K]
+  ): Promise<Array<MockView<InferRecordType<Schema> & { id: string }>>>;
+  createIndex<K extends keyof InferRecordType<Schema>>(config: {
+    name: string;
+    field: K;
+    unique?: boolean;
+  }): Promise<void>;
+  dropIndex(name: string): Promise<void>;
+  listIndexes(): string[];
+  getIndexStats(): Array<{ name: string; field: string; unique: boolean; size: number }>;
+  getSchema(): MockRecordSchema;
+  init(data: Array<MockView<InferRecordType<Schema> & { id: string }>>): Promise<void>;
+  onModify(callback: () => void): void;
+  offModify(callback: () => void): void;
+}
 
 /**
  * Configuration options for mock storage initialization
@@ -135,12 +169,12 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
    * Gets or creates a collection from defined schemas
    * @param name - Collection name
    * @param options - Optional persistence options
-   * @returns Promise resolving to the collection
+   * @returns Promise resolving to the collection with proper typing
    */
   public async collection<Name extends keyof Schemas>(
     name: Name,
     options?: MockPersistOptions
-  ): Promise<MockCollection<any>> {
+  ): Promise<TypedMockCollection<Schemas[Name]>> {
     // Auto-initialize on first collection access
     if (!this.initialized && !this.isInitializing) {
       await this.initialize();
@@ -157,8 +191,9 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
         );
       }
 
+      const simpleSchema = toSimpleSchemaRuntime(schema as CollectionSchema);
       const collection = new MockCollection(schema as CollectionSchema);
-      const persistConfig: MockPersistConfig<any> = {
+      const persistConfig: MockPersistConfig<typeof simpleSchema> = {
         name: collectionName,
         collection,
         options: options || this.config.persister,
@@ -187,7 +222,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       this.initializeRelations();
     }
 
-    return this.collections.get(collectionName)!;
+    return this.collections.get(collectionName)! as any as TypedMockCollection<Schemas[Name]>;
   }
 
   /**

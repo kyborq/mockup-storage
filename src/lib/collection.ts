@@ -9,7 +9,7 @@ import { BTree } from "./btree";
 import { IndexManager, IndexConfig, TypeSafeIndexConfig } from "./index";
 import {
   CollectionSchema,
-  toSimpleSchema,
+  toSimpleSchemaRuntime,
   extractIndexConfigs,
 } from "./schema";
 
@@ -49,7 +49,7 @@ export class MockCollection<S extends MockRecordSchema> {
    */
   constructor(schema: S | CollectionSchema) {
     // Convert collection schema to simple format for internal use
-    this.schema = toSimpleSchema(schema as CollectionSchema) as S;
+    this.schema = toSimpleSchemaRuntime(schema as CollectionSchema) as S;
     this.btree = new BTree<string, MockRecord<S>>(64);
     this.indexManager = new IndexManager<S>();
     
