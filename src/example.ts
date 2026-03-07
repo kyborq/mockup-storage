@@ -10,13 +10,17 @@ const storage = new MockStorage(
       title: { type: "string" },
       authorId: {
         type: "string",
-        relation: { collection: "author", type: "many-to-one", onDelete: "restrict" },
+        relation: {
+          collection: "author",
+          type: "many-to-one",
+          onDelete: "restrict",
+        },
       },
     },
   },
   {
     persister: { persist: false },
-  }
+  },
 );
 
 const main = async () => {
@@ -37,7 +41,10 @@ const main = async () => {
   // Get related record for one book
   const firstBook = allBooks[0];
   if (firstBook) {
-    const related = await storage.getRelatedByRelation("book_authorId_author", firstBook);
+    const related = await storage.getRelatedByRelation(
+      "book_authorId_author",
+      firstBook,
+    );
     console.log("Author of first book:", related);
   }
 

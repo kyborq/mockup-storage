@@ -165,9 +165,13 @@ export interface MockStorageConfig {
 
 /**
  * Central storage manager for collections and persistence.
- * @template Schemas - Database schemas mapping collection names to schemas
+ * @template Schemas - Database schemas; relation.collection suggests only other collections (not self)
  */
-export class MockStorage<Schemas extends DatabaseSchemas> {
+export class MockStorage<
+  Schemas extends {
+    [K in keyof Schemas]: CollectionSchema<Exclude<keyof Schemas, K> & string>;
+  }
+> {
   private collections: Map<string, MockCollection<MockRecordSchema>>;
   private persisters: Map<string, MockPersist<MockRecordSchema>>;
   private config: MockStorageConfig;
@@ -275,7 +279,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
               await collection.createIndex({
                 name: indexConfig.name,
                 field: indexConfig.field as keyof InferRecordType<
-                  Schemas[typeof name]
+                  Schemas[keyof Schemas]
                 >,
                 unique: indexConfig.unique,
               });
@@ -310,7 +314,7 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
     const collectionName = name as string;
 
     if (!this.collections.has(collectionName)) {
-      const schema = this.schemas[collectionName];
+      const schema = (this.schemas as DatabaseSchemas)[collectionName];
 
       if (!schema) {
         throw new Error(

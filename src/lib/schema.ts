@@ -33,12 +33,12 @@ type DefaultValueType<T extends "string" | "number" | "boolean" | "datetime"> =
   T extends "string"
     ? string
     : T extends "number"
-    ? number
-    : T extends "boolean"
-    ? boolean
-    : T extends "datetime"
-    ? Date
-    : never;
+      ? number
+      : T extends "boolean"
+        ? boolean
+        : T extends "datetime"
+          ? Date
+          : never;
 
 /**
  * Field definition with complete metadata
@@ -93,13 +93,15 @@ export type InferRelationNames<Schemas extends DatabaseSchemas> = {
  * Relation name for storage API: union of schema-derived names, or string when none.
  */
 export type RelationName<Schemas extends DatabaseSchemas> =
-  InferRelationNames<Schemas> extends never ? string : InferRelationNames<Schemas>;
+  InferRelationNames<Schemas> extends never
+    ? string
+    : InferRelationNames<Schemas>;
 
 /**
  * Type-safe database schemas with autocomplete for collection names
  */
 export type TypedDatabaseSchemas<
-  T extends Record<string, CollectionSchema<keyof T & string>>
+  T extends Record<string, CollectionSchema<keyof T & string>>,
 > = T;
 
 /**
@@ -113,7 +115,7 @@ export type toSimpleSchema<T extends CollectionSchema<string>> = {
  * Converts collection schema to simple MockRecordSchema format (runtime)
  */
 export function toSimpleSchemaRuntime<CN extends string = string>(
-  schema: CollectionSchema<CN>
+  schema: CollectionSchema<CN>,
 ): MockRecordSchema {
   const simpleSchema: MockRecordSchema = {};
   for (const [key, value] of Object.entries(schema)) {
@@ -126,7 +128,7 @@ export function toSimpleSchemaRuntime<CN extends string = string>(
  * Extracts index configurations from schema
  */
 export function extractIndexConfigs<CN extends string = string>(
-  schema: CollectionSchema<CN>
+  schema: CollectionSchema<CN>,
 ): Array<{ name: string; field: string; unique: boolean }> {
   const indexes: Array<{ name: string; field: string; unique: boolean }> = [];
 
@@ -148,7 +150,7 @@ export function extractIndexConfigs<CN extends string = string>(
  */
 export function extractRelationConfigs<CN extends string = string>(
   collectionName: string,
-  schema: CollectionSchema<CN>
+  schema: CollectionSchema<CN>,
 ): Array<{
   name: string;
   sourceCollection: string;
@@ -191,12 +193,12 @@ export function extractRelationConfigs<CN extends string = string>(
 type InferFieldType<T extends FieldDefinition["type"]> = T extends "string"
   ? string
   : T extends "number"
-  ? number
-  : T extends "boolean"
-  ? boolean
-  : T extends "datetime"
-  ? Date
-  : never;
+    ? number
+    : T extends "boolean"
+      ? boolean
+      : T extends "datetime"
+        ? Date
+        : never;
 
 /**
  * Type helper to determine if field is required
@@ -233,21 +235,21 @@ export type InferVisibleRecordType<T extends CollectionSchema<string>> = {
   [K in keyof T as IsHidden<T[K]> extends true
     ? never
     : IsRequired<T[K]> extends true
-    ? K
-    : never]: InferFieldType<T[K]["type"]>;
+      ? K
+      : never]: InferFieldType<T[K]["type"]>;
 } & {
   [K in keyof T as IsHidden<T[K]> extends true
     ? never
     : IsRequired<T[K]> extends true
-    ? never
-    : K]?: InferFieldType<T[K]["type"]>;
+      ? never
+      : K]?: InferFieldType<T[K]["type"]>;
 };
 
 /**
  * Extracts hidden field names from schema
  */
 export function extractHiddenFields<CN extends string = string>(
-  schema: CollectionSchema<CN>
+  schema: CollectionSchema<CN>,
 ): string[] {
   const hiddenFields: string[] = [];
 
@@ -264,7 +266,7 @@ export function extractHiddenFields<CN extends string = string>(
  * Filters out hidden fields from a record
  */
 export function filterHiddenFields<
-  T extends Record<string, string | number | boolean | Date>
+  T extends Record<string, string | number | boolean | Date>,
 >(record: T, hiddenFields: string[]): Omit<T, string> {
   const filtered = { ...record };
 

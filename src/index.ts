@@ -1,4 +1,8 @@
-import { MockStorage, MockStorageConfig, TypedMockCollection } from "./lib/storage";
+import {
+  MockStorage,
+  MockStorageConfig,
+  TypedMockCollection,
+} from "./lib/storage";
 import { MockCollection, MockFilter } from "./lib/collection";
 import { MockRecord, MockView } from "./lib/record";
 import {
