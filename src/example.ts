@@ -10,7 +10,7 @@ const storage = new MockStorage(
       title: { type: "string" },
       authorId: {
         type: "string",
-        relation: { collection: "author", type: "one-to-many" },
+        relation: { collection: "author", type: "many-to-one", onDelete: "restrict" },
       },
     },
   },
@@ -23,14 +23,27 @@ const main = async () => {
   const authors = await storage.collection("author");
   const books = await storage.collection("book");
 
-  // await books.add({ authorId: author1.id, title: "Voina i mir" });
-  // await books.add({ authorId: author1.id, title: "Voina i mir chast 2" });
+  const author1 = await authors.add({ name: "Tolstoy", asd: true });
+  await books.add({ authorId: author1.id, title: "Voina i mir" });
+  await books.add({ authorId: author1.id, title: "Voina i mir chast 2" });
 
   const allBooks = await books.all();
-  console.log(allBooks);
+  console.log("Books:", allBooks);
 
-  const b = await books.getRelated(authors, "authorId", "name");
-  console.log(b);
+  // Convenient API: join by relation name (from schema: book_authorId_author)
+  const booksWithAuthors = await storage.join("book_authorId_author", "left");
+  console.log("Books with authors:", booksWithAuthors);
+
+  // Get related record for one book
+  const firstBook = allBooks[0];
+  if (firstBook) {
+    const related = await storage.getRelatedByRelation("book_authorId_author", firstBook);
+    console.log("Author of first book:", related);
+  }
+
+  // Collection-level join (explicit fields; targetField defaults to "id")
+  const withAuthors = await books.leftJoin(authors, "authorId", "id");
+  console.log("Via leftJoin:", withAuthors);
 };
 
 main();

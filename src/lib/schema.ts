@@ -74,6 +74,28 @@ export type CollectionSchema<CollectionNames extends string = string> = Record<
 export type DatabaseSchemas = Record<string, CollectionSchema<string>>;
 
 /**
+ * Infers relation name strings from schemas: "${sourceCollection}_${sourceField}_${targetCollection}"
+ * Used for typed join() / getRelatedByRelation() autocomplete.
+ */
+export type InferRelationNames<Schemas extends DatabaseSchemas> = {
+  [C in keyof Schemas]: {
+    [F in keyof Schemas[C]]: Schemas[C][F] extends {
+      relation: { collection: infer T };
+    }
+      ? T extends string
+        ? `${string & C}_${string & F}_${T}`
+        : never
+      : never;
+  }[keyof Schemas[C]];
+}[keyof Schemas];
+
+/**
+ * Relation name for storage API: union of schema-derived names, or string when none.
+ */
+export type RelationName<Schemas extends DatabaseSchemas> =
+  InferRelationNames<Schemas> extends never ? string : InferRelationNames<Schemas>;
+
+/**
  * Type-safe database schemas with autocomplete for collection names
  */
 export type TypedDatabaseSchemas<

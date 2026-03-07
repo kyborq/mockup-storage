@@ -5,15 +5,9 @@
 
 import { MockRecordSchema, InferSchemaType, MockView } from "./record";
 import { MockCollection } from "./collection";
+import type { RelationType } from "./schema";
 
-/**
- * Relation types
- */
-export type RelationType =
-  | "one-to-one"
-  | "one-to-many"
-  | "many-to-one"
-  | "many-to-many";
+export type { RelationType };
 
 /**
  * Relation configuration
@@ -67,9 +61,9 @@ export type TypedRelationConfig<
 };
 
 /**
- * JOIN types
+ * JOIN types (only inner/left/right are implemented)
  */
-export type JoinType = "inner" | "left" | "right" | "full";
+export type JoinType = "inner" | "left" | "right";
 
 /**
  * JOIN result - combines two record types
@@ -338,7 +332,7 @@ export class Relation<
   }
 
   /**
-   * Returns relation metadata
+   * Returns relation metadata (includes targetCollection for delete propagation)
    */
   public getMetadata() {
     return {
@@ -347,6 +341,7 @@ export class Relation<
       sourceField: this.config.sourceField,
       targetField: this.config.targetField,
       onDelete: this.config.onDelete,
+      targetCollection: this.config.targetCollection,
     };
   }
 }
@@ -435,6 +430,25 @@ export class RelationManager {
     }
 
     return results;
+  }
+
+  /**
+   * When a record is deleted from a collection, run onDelete (cascade/restrict/set-null)
+   * for every relation that has this collection as target.
+   */
+  public async handleDeleteForTarget(
+    targetCollection: MockCollection<MockRecordSchema>,
+    deletedRecord: MockView<Record<string, unknown>>
+  ): Promise<void> {
+    for (const relation of this.relations.values()) {
+      const meta = relation.getMetadata();
+      if (meta.targetCollection !== targetCollection) continue;
+      const targetValue = deletedRecord[meta.targetField as string];
+      if (targetValue === undefined || targetValue === null) continue;
+      await relation.handleDelete(
+        targetValue as string | number | boolean | Date
+      );
+    }
   }
 
   /**

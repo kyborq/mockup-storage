@@ -13,6 +13,7 @@ import {
   toSimpleSchemaRuntime,
   extractRelationConfigs,
   InferRecordType,
+  RelationName,
 } from "./schema";
 import { DatabaseFile } from "./database-file";
 
@@ -113,6 +114,44 @@ export interface TypedMockCollection<Schema extends CollectionSchema<string>> {
   ): Promise<Array<MockView<InferRecordType<TargetSchema> & { id: string }>>>;
 }
 
+/** Parses relation name "source_sourceField_target" into [source, target] collection names */
+type ParseRelationName<R extends string> =
+  R extends `${infer S}_${string}_${infer T}` ? [S, T] : never;
+
+/** One row of join(relationName): source record + joined target (or null for left/right). */
+export type JoinResultRow<
+  Schemas extends DatabaseSchemas,
+  R extends string
+> = ParseRelationName<R> extends [infer S, infer T]
+  ? S extends keyof Schemas
+    ? T extends keyof Schemas
+      ? MockView<InferRecordType<Schemas[S]> & { id: string }> & {
+          joined: MockView<InferRecordType<Schemas[T]> & { id: string }> | null;
+        }
+      : Record<string, unknown> & { joined: unknown }
+    : Record<string, unknown> & { joined: unknown }
+  : Record<string, unknown> & { joined: unknown };
+
+/** Source record type for getRelatedByRelation(relationName, sourceRecord). */
+export type GetRelatedSourceRecord<
+  Schemas extends DatabaseSchemas,
+  R extends string
+> = ParseRelationName<R> extends [infer S, infer T]
+  ? S extends keyof Schemas
+    ? MockView<InferRecordType<Schemas[S]> & { id: string }>
+    : MockView<Record<string, unknown>>
+  : MockView<Record<string, unknown>>;
+
+/** Result array type for getRelatedByRelation(relationName, sourceRecord). */
+export type GetRelatedResult<
+  Schemas extends DatabaseSchemas,
+  R extends string
+> = ParseRelationName<R> extends [infer S, infer T]
+  ? T extends keyof Schemas
+    ? Array<MockView<InferRecordType<Schemas[T]> & { id: string }>>
+    : Array<MockView<Record<string, unknown>>>
+  : Array<MockView<Record<string, unknown>>>;
+
 /**
  * Configuration options for mock storage initialization
  */
@@ -134,7 +173,6 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   private config: MockStorageConfig;
   private schemas: Schemas;
   private relationManager: RelationManager;
-  private relationsInitialized: boolean = false;
   private databaseFile: DatabaseFile;
   private autoCommitTimer?: NodeJS.Timeout;
   private pendingCommit: boolean = false;
@@ -162,11 +200,11 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
   }
 
   /**
-   * Initializes all relations defined in schemas
+   * Initializes all relations defined in schemas.
+   * Idempotent: only registers relations that are not yet defined, so safe to call
+   * whenever a new collection is created (ensures relations appear when both sides exist).
    */
   private initializeRelations(): void {
-    if (this.relationsInitialized) return;
-
     for (const [collectionName, schema] of Object.entries(this.schemas)) {
       const relations = extractRelationConfigs(
         collectionName,
@@ -174,6 +212,8 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       );
 
       for (const relationConfig of relations) {
+        if (this.relationManager.getRelation(relationConfig.name)) continue;
+
         const sourceCol = this.collections.get(relationConfig.sourceCollection);
         const targetCol = this.collections.get(relationConfig.targetCollection);
 
@@ -193,8 +233,6 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
         }
       }
     }
-
-    this.relationsInitialized = true;
   }
 
   public async initialize(): Promise<void> {
@@ -300,6 +338,11 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       this.collections.set(collectionName, collection);
       this.persisters.set(collectionName, persist);
 
+      // Run relation onDelete (cascade/restrict/set-null) when a record is removed
+      collection.setOnBeforeRemove(async (_id, record) => {
+        await this.relationManager.handleDeleteForTarget(collection, record);
+      });
+
       // Setup auto-commit if enabled
       if (this.config.persister?.autoCommit !== false) {
         collection.onModify(() => {
@@ -308,8 +351,8 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
       }
     }
 
-    // Initialize relations after all collections are created
-    if (this.collections.size > 0 && !this.relationsInitialized) {
+    // (Re-)register schema relations when both sides exist; idempotent
+    if (this.collections.size > 0) {
       this.initializeRelations();
     }
 
@@ -525,5 +568,47 @@ export class MockStorage<Schemas extends DatabaseSchemas> {
    */
   public getRelationMetadata() {
     return this.relationManager.getAllMetadata();
+  }
+
+  /**
+   * Join two collections by relation name (convenience API).
+   * Relation must be defined in schema or via defineRelation.
+   * @param relationName - autocomplete from schema (e.g. "book_authorId_author")
+   * @param joinType - "inner" | "left" | "right" (default "left")
+   */
+  public async join<R extends RelationName<Schemas>>(
+    relationName: R,
+    joinType: "inner" | "left" | "right" = "left"
+  ): Promise<Array<JoinResultRow<Schemas, R>>> {
+    const relation = this.relationManager.getRelation(relationName as string);
+    if (!relation) {
+      throw new Error(
+        `Relation "${String(relationName)}" not found. Defined: ${this.relationManager.listRelations().join(", ")}`
+      );
+    }
+    if (joinType === "inner") return relation.innerJoin() as Promise<Array<JoinResultRow<Schemas, R>>>;
+    if (joinType === "right") return relation.rightJoin() as Promise<Array<JoinResultRow<Schemas, R>>>;
+    return relation.leftJoin() as Promise<Array<JoinResultRow<Schemas, R>>>;
+  }
+
+  /**
+   * Get related record(s) for a source record by relation name.
+   * @param relationName - autocomplete from schema (e.g. "book_authorId_author")
+   * @param sourceRecord - record from the source collection (e.g. a book)
+   */
+  public async getRelatedByRelation<R extends RelationName<Schemas>>(
+    relationName: R,
+    sourceRecord: GetRelatedSourceRecord<Schemas, R>
+  ): Promise<GetRelatedResult<Schemas, R>> {
+    const relation = this.relationManager.getRelation(relationName as string);
+    if (!relation) {
+      throw new Error(
+        `Relation "${String(relationName)}" not found. Defined: ${this.relationManager.listRelations().join(", ")}`
+      );
+    }
+    const result = await relation.getRelated(
+      sourceRecord as Parameters<typeof relation.getRelated>[0]
+    );
+    return result as GetRelatedResult<Schemas, R>;
   }
 }

@@ -40,7 +40,14 @@ import {
   filterHiddenFields,
   InferRecordType,
   InferVisibleRecordType,
+  InferRelationNames,
+  RelationName,
 } from "./lib/schema";
+import type {
+  JoinResultRow,
+  GetRelatedSourceRecord,
+  GetRelatedResult,
+} from "./lib/storage";
 
 export {
   // Core classes
@@ -99,6 +106,11 @@ export {
   filterHiddenFields,
   InferRecordType,
   InferVisibleRecordType,
+  InferRelationNames,
+  RelationName,
+  JoinResultRow,
+  GetRelatedSourceRecord,
+  GetRelatedResult,
 
   // Storage Config
   MockStorageConfig,

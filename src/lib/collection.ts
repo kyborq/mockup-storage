@@ -45,6 +45,10 @@ export class MockCollection<S extends MockRecordSchema> {
   private onModifyCallbacks: (() => void)[] = [];
   private autoIndexesCreated: boolean = false;
   private hiddenFields: string[] = [];
+  private onBeforeRemove?: (
+    id: string,
+    record: MockView<InferSchemaType<S>>
+  ) => Promise<void>;
 
   /**
    * Creates a new `MockCollection` instance.
@@ -88,6 +92,15 @@ export class MockCollection<S extends MockRecordSchema> {
     }
 
     this.autoIndexesCreated = true;
+  }
+
+  /**
+   * Sets a callback run before a record is removed (e.g. for relation cascade/restrict).
+   */
+  public setOnBeforeRemove(
+    callback: (id: string, record: MockView<InferSchemaType<S>>) => Promise<void>
+  ): void {
+    this.onBeforeRemove = callback;
   }
 
   /**
@@ -292,11 +305,15 @@ export class MockCollection<S extends MockRecordSchema> {
     const release = await this.mutex.acquire();
 
     try {
-      // Get record before deletion for index removal
+      // Get record before deletion for index removal and relation hooks
       const record = this.btree.search(id);
       if (!record) return false;
 
       const view = record.view();
+
+      if (this.onBeforeRemove) {
+        await this.onBeforeRemove(id, view);
+      }
 
       // Remove from B-Tree
       const result = this.btree.delete(id);
